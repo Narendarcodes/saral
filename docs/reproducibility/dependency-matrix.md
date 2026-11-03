@@ -11,7 +11,6 @@ exercised on that run, not copied from a lockfile someone hoped was right.
 | Frappe bench | Python (container) | 5.31.0 | baked into the image | image build | `bench --version` |
 | ERPNext | Python (container) | 16.50.0 | `infra/frappe/apps.json` (`version-16`) | `bench new-site --install-app erpnext` | site creation completed |
 | Frappe Lending | Python (container) | 16.6.1 | `infra/frappe/apps.json` (`version-16`) | `bench --site <site> install-app lending` | `list-apps` |
-| `loan_advisory_portal` (this app) | Python (container) | 0.1.0 | `apps/loan_advisory_portal/pyproject.toml` (flit; `dependencies = []`, frappe `>=16,<17`) | `infra/frappe/bootstrap/install_portal_app.sh` | `bench install-app` + `migrate` + `list-apps` + **193 tests OK** |
 | Assistant island | TypeScript / React 19 | `react 19.2.0`, `@copilotkit/react-core 1.83.0`, `vite ^8.3.5`, `typescript ^5.9.0` | `apps/web/assistant/package.json` + lockfile | `npm ci && npm run build` | `tsc --noEmit` clean, **86 tests passed**, build byte-identical to the committed bundle |
 | CopilotKit runtime | TypeScript / Node | `@copilotkit/runtime 1.83.0`, `typescript ^5.9.0` | `apps/runtime/package.json` + lockfile | `npm ci && npm run build` | `tsc` (app + test configs) clean, **13 tests passed**, `/api/copilotkit/info` 200 |
 | Browser harnesses | JavaScript / Playwright | `playwright 1.63.0`, `@axe-core/playwright 4.14.0` | `tests/e2e/package.json` + lockfile | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --prefix tests/e2e` | journeys **36/36**, security **39/39**, axe **103 runs / 0 violations** |
@@ -38,7 +37,6 @@ Core (`requirements.txt`): `fastapi 0.162.0`, `starlette 1.10.0`, `pydantic 2.14
 `ruff 0.17.3`.
 
 Test manifest (`requirements-test.txt`): `beautifulsoup4`, `pyyaml`, `rank-bm25`, `qdrant-client`,
-`pymupdf`, `pypdf`, `playwright`, `urllib3`.
 
 ## Mandatory, optional, dev-only
 

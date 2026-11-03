@@ -13,7 +13,6 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Framework :: Frappe",
 ]
-dependencies = []
 
 [tool.bench.frappe-dependencies]
 frappe = ">=16.0.0,<17.0.0"
