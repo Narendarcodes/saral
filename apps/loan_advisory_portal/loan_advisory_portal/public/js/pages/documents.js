@@ -197,6 +197,7 @@
 		state.previewRow = null;
 		hide(field("preview-close"));
 		field("preview-body").innerHTML =
+			'<p class="small muted">Choose Preview for a person-review note, or Read fields to read the details from an attached document.</p>';
 	}
 
 	function previewHeader(doc, badge) {
@@ -245,6 +246,8 @@
 			'<p class="small muted">Open the original with Download if you need to check what you sent.</p></div>';
 	}
 
+			'<p class="small muted">These suggestions can be wrong. Check every value before confirming. This record does not update your application; your document is not sent to any AI chat service.</p>' +
+			'<div class="preview-sheet"><p class="small muted">Reading the attached document on our own server. Your document is not sent to any AI chat service.</p><div class="skeleton skeleton--block" aria-hidden="true"></div></div>';
 	async function uploadFile(file) {
 		if (!file || state.uploading || !state.application || !state.canEdit) return;
 		var select = field("doc-type");
