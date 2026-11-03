@@ -115,6 +115,7 @@ class AgentState(TypedDict, total=False):
     deadline: float
     prefetched: dict | None
     voice_lead: str | None
+    customer_segmentation: dict | None
 
 
 class AdvisoryAgent:
@@ -286,6 +287,7 @@ class AdvisoryAgent:
                 "trace": [{"node": "receive", "t_ms": 0.0}], "status": None, "flags": [],
                 "intent": None, "wi_changes": None, "record": None, "what_if": None, "plan": None, "passages": [],
                 "retrieval": None, "draft": None, "abstained": False, "cited": [], "guard_flags": [], "attempts": 0,
+                "fallback_used": False, "action": None, "handoff_ref": None, "response": None, "customer_segmentation": None}
 
     def authenticate(self, s):
         req, sess = self._req(s), self._session(s)
@@ -380,6 +382,7 @@ class AdvisoryAgent:
             st = "ok"
         self._ev(s, "get_decision_evidence", status=st, record_id=(rec or {}).get("record_id"))
         seg = get_customer_segmentation(bureau_report_from_record(rec))  # tone only: HOW to explain, never WHAT
+        return {"record": rec, "status": st, "trace": s["trace"], "customer_segmentation": seg}
 
     def plan(self, s):
         req = self._req(s)
@@ -639,7 +642,7 @@ class AdvisoryAgent:
                 done, tail = split_sentences(rest + " ")
                 for snt in done + ([tail] if tail.strip() else []):
                     self._emit(s, snt)
-        card = F.decision_card(s["record"]) if s.get("record") else None
+        card = F.decision_card_borrower(s["record"]) if s.get("record") else None  # Q-07: never the officer card
         cites = []
         if intent == "policy" and not s.get("abstained"):
             by_label = {p["label"]: p for p in s.get("passages") or []}
@@ -662,9 +665,8 @@ class AdvisoryAgent:
             action=s.get("action") or "answer", answer=draft or "", abstained=bool(s.get("abstained")), citations=cites,
             evidence_refs=[x for x in [(s.get("record") or {}).get("record_id"), (wi or {}).get("record", {}).get("record_id") if wi and "record" in wi else None] if x],
             missing_information=missing, handoff_ref=s.get("handoff_ref"), decision_card=card,
-            improvement_plan=[{k: v for k, v in st.items() if k in ("rule_id", "task", "target_display", "gap_display", "general_guidance",
-                                                                      "guidance_source", "rule_passes_after_change")} for st in plan_steps],
-            what_if=({k: v for k, v in wi.items() if k != "record"} if wi else None),
+            improvement_plan=[F.borrower_plan_step(st) for st in plan_steps],
+            what_if=(F.borrower_what_if(wi) if wi else None),
             guard_flags=gflags + (["fallback_template"] if fallback else []), timings=timings)
         self._audit(s, resp)
         hist = [{"role": "user", "text": req.message}, {"role": "assistant", "text": resp.answer[:600]}]
