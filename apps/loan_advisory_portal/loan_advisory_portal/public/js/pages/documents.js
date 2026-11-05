@@ -198,7 +198,7 @@
 		state.previewRow = null;
 		hide(field("preview-close"));
 		field("preview-body").innerHTML =
-			'<p class="small muted">Choose Preview for a person-review note, or Read fields to read the details from an attached document.</p>';
+			'<p class="small muted">Choose Preview on a document to see what a checking view would show.</p>';
 	}
 
 	function previewHeader(doc, badge) {
@@ -226,9 +226,12 @@
 			'<div class="skeleton skeleton--block" aria-hidden="true"></div>' +
 			'<p class="small muted">Preparing a preview</p></div>';
 		window.setTimeout(function () {
+			if (state.previewRow !== doc.row) return;
+			renderPreviewResult(doc);
 		}, DEMO ? 650 : 350);
 	}
 
+	function renderPreviewResult(doc) {
 		if (DEMO) {
 			field("preview-body").innerHTML =
 				'<div class="preview-sheet">' +
@@ -244,11 +247,10 @@
 		field("preview-body").innerHTML =
 			'<div class="preview-sheet">' +
 			previewHeader(doc, '<span class="badge badge--neutral">Person review</span>') +
+			'<p class="small muted">Automatic text extraction is not available in this environment, so no fields are shown here. A person reviews the uploaded file after you submit.</p>' +
 			'<p class="small muted">Open the original with Download if you need to check what you sent.</p></div>';
 	}
 
-			'<p class="small muted">These suggestions can be wrong. Check every value before confirming. This record does not update your application; your document is not sent to any AI chat service.</p>' +
-			'<div class="preview-sheet"><p class="small muted">Reading the attached document on our own server. Your document is not sent to any AI chat service.</p><div class="skeleton skeleton--block" aria-hidden="true"></div></div>';
 	async function uploadFile(file) {
 		if (!file || state.uploading || !state.application || !state.canEdit) return;
 		var select = field("doc-type");
@@ -487,6 +489,7 @@
 	field("doc-list").addEventListener("click", function (event) {
 		var button = event.target.closest("button");
 		if (!button) return;
+		var index = Number(button.dataset.preview || button.dataset.download || button.dataset.remove);
 		var doc = state.documents[index];
 		if (!doc) return;
 		if (button.hasAttribute("data-preview")) renderPreview(doc);

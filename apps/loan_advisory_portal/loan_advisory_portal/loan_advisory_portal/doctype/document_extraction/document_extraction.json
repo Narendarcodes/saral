@@ -1,11 +1,19 @@
+{
+ "actions": [],
+ "autoname": "hash",
  "creation": "2026-11-03 00:00:00.000000",
- "description": "Masked OCR result for one uploaded document (PR #41 shape) plus the applicant's confirmation audit (PR #47). Raw OCR text is NEVER_STORE. The file itself is SOURCE_REFERENCE.",
+ "description": "Masked OCR result for one uploaded document plus the applicant's confirmation audit. Raw OCR text is NEVER_STORE. The file itself is SOURCE_REFERENCE.",
+ "doctype": "DocType",
  "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
   "loan_application",
+  "file",
   "document_kind",
   "document_sha256",
   "document_date",
   "document_age_days",
+  "engine",
   "ocr_route",
   "ocr_field_confidence",
   "needs_manual_review",
@@ -22,6 +30,15 @@
   "status",
   "document_type",
   "file_name",
+  "engine_version",
+  "pages",
+  "extracted_values",
+  "confirmed_values",
+  "warnings",
+  "confirmed_by",
+  "confirmed_on"
+ ],
+ "fields": [
   {
    "fieldname": "loan_application",
    "fieldtype": "Link",
@@ -206,7 +223,15 @@
    "label": "Confirmed On",
    "read_only": 1
   }
- "modified": "2026-11-03 00:00:00.000000",
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Loan Advisory Portal",
+ "name": "Document Extraction",
+ "owner": "Administrator",
+ "permissions": [
   {
    "role": "System Manager",
    "read": 1,
@@ -235,3 +260,9 @@
    "role": "Agent Integration",
    "read": 1
   }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

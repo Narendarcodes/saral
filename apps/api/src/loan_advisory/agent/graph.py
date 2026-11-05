@@ -29,7 +29,6 @@ from loan_advisory.agent import observability as obs
 from loan_advisory.agent import guards as G
 from loan_advisory.agent import prompts as P
 from loan_advisory.agent.intent_router import build_routers, first_route
-from loan_advisory.agent.segmentation import bureau_report_from_record, get_customer_segmentation, with_tone
 from loan_advisory.agent.settings import AgentSettings
 from loan_advisory.agent.intent_llm import build_intent_llm
 from loan_advisory.agent.streaming import JSONFieldStreamer, SentenceGate, remainder, split_sentences
@@ -395,8 +394,8 @@ class AdvisoryAgent:
                 allowed |= set(G.numbers_in(p["text"] + " " + p["citation"]["title"] + " " + str(p["citation"].get("section"))))
         return allowed
 
-    def _style(self, req: AgentRequest, segmentation: dict | None = None):
-        return (with_tone(P.LITERACY_STYLE.get(req.literacy, P.LITERACY_STYLE["medium"]), segmentation), P.LANG.get(req.locale, "English"),
+    def _style(self, req: AgentRequest):
+        return (P.LITERACY_STYLE.get(req.literacy, P.LITERACY_STYLE["medium"]), P.LANG.get(req.locale, "English"),
                 P.VOICE if req.channel == "voice" else "")
 
     # ------------------------------------------------------------------ nodes
@@ -408,8 +407,7 @@ class AdvisoryAgent:
                 "retrieval": None, "draft": None, "abstained": False, "cited": [], "guard_flags": [], "attempts": 0,
                 "fallback_used": False, "action": None, "handoff_ref": None, "response": None,
                 "route": None, "clarify": False, "decision_cache": s.get("decision_cache"),
-                "what_if_count": int(s.get("what_if_count") or 0),
-                "customer_segmentation": None}
+                "what_if_count": int(s.get("what_if_count") or 0)}
 
     def authenticate(self, s):
         req, sess = self._req(s), self._session(s)
@@ -542,8 +540,7 @@ class AdvisoryAgent:
         obs.set_attrs(obs.current_span(), **{"decision.cache": cache_status},
                       **obs.lf_meta(decision_cache=cache_status,
                                     reason_categories=[c["key"] for c in F.reason_categories(rec)] if rec else None))
-        seg = get_customer_segmentation(bureau_report_from_record(rec))  # tone only: HOW to explain, never WHAT
-        return {"record": rec, "status": st, "trace": s["trace"], "decision_cache": new_cache, "customer_segmentation": seg}
+        return {"record": rec, "status": st, "trace": s["trace"], "decision_cache": new_cache}
 
     def _decision(self, req, sess, cache):
         """(record, stamp, hit|miss|none). The tool re-checks ownership every call and re-reads the evidence only when
@@ -607,7 +604,7 @@ class AdvisoryAgent:
 
     def compose(self, s):
         req, intent = self._req(s), s["intent"]
-        style, lang, voice = self._style(req, s.get("customer_segmentation"))
+        style, lang, voice = self._style(req)
         retry = P.RETRY.format(flags=", ".join(s["guard_flags"])) if s.get("attempts") else ""
         attempts = s.get("attempts", 0) + 1
         if intent == "policy" and not s["passages"]:
