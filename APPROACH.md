@@ -1,10 +1,9 @@
 # Approach
 
 How Saral is built and why, as submitted on 2026-11-04. Architecture drawing (opens in draw.io):
-[docs/architecture.drawio.svg](docs/architecture.drawio.svg). Phases, dates and owners:
-[docs/build-plan.md](docs/build-plan.md). Final numbers: [docs/saral/FINAL_EVAL_20261104.md](docs/saral/FINAL_EVAL_20261104.md).
-Demo logins and test applicants: [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md). Functional document:
-[docs/functional.md](docs/functional.md).
+[docs/architecture.drawio.svg](docs/architecture.drawio.svg).
+Final numbers: [docs/saral/FINAL_EVAL_20261104.md](docs/saral/FINAL_EVAL_20261104.md).
+Demo logins and test applicants: [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md).
 
 ## Who it is for
 
@@ -27,7 +26,6 @@ numbers as the applicant's own case.
 | Agent | **Reuse** LangGraph and FastAPI; **build** the graph, guards, sanitiser, facts-first composer, what-if and handoff | A controlled workflow with a few read-only tools; one graph, not multi-agent |
 | LLMs | **Reuse** hosted models through OpenAI-compatible endpoints: Gemini 3.8 Flash via OmniRoute for answers (Claude Sonnet 4.6 fallback); Groq gpt-oss-120b chain for intent | No GPU to run; the intent step needed sub-second latency (96.4% on 140 dev turns, 0 timeouts) |
 | Policy search | **Reuse** Qdrant, EmbeddingGemma, BM25; **build** the corpus split (Bajaj and RBI collections), weighted fusion and citation rules | Hybrid retrieval beat either method alone; RAG explains, never decides |
-| Documents | **Reuse** PaddleOCR PP-OCRv5 mobile (default) and Tesseract (fallback, from the team's OCR work); **build** parsers, masking and refer-only signature screening | Paddle won both benchmarks; fallback keeps OCR working when Paddle fails |
 | Bureau, KYC, bank data | **Build** synthetic mock services | No real bureau or KYC access; nothing real is claimed |
 | Tone | **Build** rule-based customer segmentation (team work) that picks how to explain, never what | Literacy-aware explanations without exposing the segment |
 | Observability and evals | **Reuse** self-hosted Langfuse and DeepEval; **build** golden datasets (RAG and conversations) and deterministic leak checks | Traces stay on our machines; metrics are standard and re-runnable |
@@ -43,19 +41,19 @@ Borrower (Saral portal on Frappe, EN / HI / TE)
        -> read the stored ZEN decision only when the turn needs it (cached per conversation)
        -> explain / improve / what-if (ZEN in memory, cap 3) / policy (RAG) / clarify / handoff
        -> compose (Gemini 3.8 Flash, Sonnet 4.6 fallback) -> answer guards + sanitiser
-Decision runner (no LLM): SUBMITTED application -> KYC / AA / bureau mocks + OCR -> ZEN -> evidence in Frappe
+Decision runner (no LLM): SUBMITTED application -> KYC / AA / bureau mocks -> ZEN -> evidence in Frappe
 Loan Officer: Frappe desk review queue.   Telemetry: Langfuse (optional).   Evals: DeepEval.
 ```
 
 Detail: [docs/saral/ARCHITECTURE.md](docs/saral/ARCHITECTURE.md). Limitations:
-[project-management/AGENT_LIMITATIONS.md](project-management/AGENT_LIMITATIONS.md).
+[docs/AGENT_LIMITATIONS.md](docs/AGENT_LIMITATIONS.md).
 
 ---
 
 # History: design rationale before Saral (October 2026)
 
 The sections below are the original approach for PRs #1–#21, kept as history. Where they disagree with the sections
-above (for example the LLM, the voice-first scope or the OCR engine), the sections above are current.
+above (for example the LLM, or the voice-first scope), the sections above are current.
 
 ## 1. Problem statement
 

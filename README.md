@@ -45,8 +45,8 @@ English, Hindi or Telugu, says what the borrower can do next, and answers genera
 model only explains the decision that ZEN already recorded, and policy search (RAG) only supplies general, cited
 background.
 
-Built by Team Loan Rangers for the VaaniLabs.AI capstone (CBIT, AI/ML). The repository name is spelled
-`Load-Advisory-Agent`. Who built what: [BUILD.md](BUILD.md).
+Saral began as a CBIT AI/ML team capstone (VaaniLabs.AI). This repository is Golla Narendar's own build and
+extension of it; teammates' modules (document OCR, customer segmentation, the functional write-up) are not included.
 
 > **Read this first**
 > - **All applicant data is synthetic.** No real person, PAN, Aadhaar number, employer or bank account is used.
@@ -116,7 +116,7 @@ Test logins (generated at run time, never committed) and one synthetic applicant
 | Python | 3.14 (CI and `pyproject.toml` target 3.14) | agent, decision core, synthetic services, tests |
 | Node.js / npm | 24.x / 11.x | assistant runtime and the chat island build |
 | Docker Desktop (Linux containers) with Compose v2 | recent | Frappe stack (MariaDB 11.8, Redis 8.6); optional Langfuse |
-| RAM | 16 GB recommended | Frappe (about 4 GB), PaddleOCR (about 3 GB per worker), embeddings |
+| RAM | 16 GB recommended | Frappe (about 4 GB), embeddings |
 | An OpenAI-compatible LLM endpoint | — | answers. Default: an OmniRoute gateway serving `antigravity/gemini-3.8-flash` |
 | Groq API key | optional | fast intent classifier; without it the classifier falls back to the gateway, then to rules |
 | Hugging Face account | — | one-time `huggingface-cli login` for the gated EmbeddingGemma-2 model (policy search) |
@@ -179,7 +179,7 @@ Start in this order (ports are the defaults; all bind to 127.0.0.1):
 
 | # | Service | Command | Port |
 |---|---|---|---:|
-| 1 | Frappe Lending + Saral portal (Docker) | `docker compose -f infra/frappe/loanrangers.yml up -d --pull missing` (build the `loanrangers-frappe:16` image first if you have never built it, see [setup.md](docs/development/setup.md)); create the site: `docker exec loanrangers-backend-1 bash -lc 'cd /home/frappe/frappe-bench && bench new-site saral.local --mariadb-user-host-login-scope=% --db-root-password "$MYSQL_ROOT_PASSWORD" --admin-password "$ADMINPW" --install-app erpnext && bench --site saral.local install-app lending'` (about 6 min; pass both variables with `-e`; the root password is the db container's `MYSQL_ROOT_PASSWORD`); then `FRAPPE_SITE=saral.local FRAPPE_BACKEND=loanrangers-backend-1 bash infra/frappe/bootstrap/install_portal_app.sh`. The script copies the app into the backend container only: restart (or copy into) the queue and scheduler containers too. Put `agent_assertion_secret`, `allow_tests` and `allow_demo_users` into `sites/saral.local/site_config.json` by editing the file inside the container (exact command in [setup.md](docs/development/setup.md) §4), not with `bench set-config`, so the secret stays out of `logs/bench.log` (the `new-site` passwords are logged there too: treat that log as sensitive). For document-upload OCR use the `loanrangers-frappe:16-ocr` image (`infra/frappe/Dockerfile.ocr`, `infra/frappe/loanrangers.ocr.yml`); the seeded applicants do not need it | 8080 |
+| 1 | Frappe Lending + Saral portal (Docker) | `docker compose -f infra/frappe/loanrangers.yml up -d --pull missing` (build the `loanrangers-frappe:16` image first if you have never built it, see [setup.md](docs/development/setup.md)); create the site: `docker exec loanrangers-backend-1 bash -lc 'cd /home/frappe/frappe-bench && bench new-site saral.local --mariadb-user-host-login-scope=% --db-root-password "$MYSQL_ROOT_PASSWORD" --admin-password "$ADMINPW" --install-app erpnext && bench --site saral.local install-app lending'` (about 6 min; pass both variables with `-e`; the root password is the db container's `MYSQL_ROOT_PASSWORD`); then `FRAPPE_SITE=saral.local FRAPPE_BACKEND=loanrangers-backend-1 bash infra/frappe/bootstrap/install_portal_app.sh`. The script copies the app into the backend container only: restart (or copy into) the queue and scheduler containers too. Put `agent_assertion_secret`, `allow_tests` and `allow_demo_users` into `sites/saral.local/site_config.json` by editing the file inside the container (exact command in [setup.md](docs/development/setup.md) §4), not with `bench set-config`, so the secret stays out of `logs/bench.log` (the `new-site` passwords are logged there too: treat that log as sensitive). | 8080 |
 | 2 | Synthetic applicants (once) | `python -m synthetic_data.saral_kyc_bank --count 200 --seed 20261103 --out ../saral-data/full200` | — |
 | 3 | Seed borrowers and applications (once) | `python -m ops.saral_seed.plan ../saral-data/full200 ../saral-data/plan.json`, then copy `plan.json` and `ops/saral_seed/frappe_seed.py` into the backend container and run it there (exact `docker cp` / `docker exec` lines at the top of `frappe_seed.py`). It writes logins and service keys to a 0600 `creds.json` and a `mapping.json`; copy both out, and put the reader key in `FRAPPE_API_KEY` / `FRAPPE_API_SECRET` | — |
 | 4 | Synthetic KYC + AA bank API | `SARAL_SYNTH_DIR=../saral-data/full200 python -m ops.synthetic_kyc_bank.app --port 8012` | 8012 |
@@ -234,7 +234,6 @@ flowchart LR
   subgraph DEC["Decision pipeline (no LLM)"]
     RUN["Decision runner"] --> KYC["Synthetic KYC + AA bank API"]
     RUN --> BUR["Synthetic bureau"]
-    RUN --> OCR["OCR<br/>(PaddleOCR default,<br/>Tesseract fallback)"]
     RUN --> ZEN["ZEN rules engine<br/>(catalogue v2)"]
   end
   LMS -- "SUBMITTED" --> RUN
@@ -249,8 +248,7 @@ flowchart LR
 
 Editable drawing (opens in draw.io): [docs/architecture.drawio.svg](docs/architecture.drawio.svg). Detailed
 diagrams (system, decision flow, agent turn, deployment): [docs/saral/ARCHITECTURE.md](docs/saral/ARCHITECTURE.md).
-Why it is built this way and what was reused: [APPROACH.md](APPROACH.md). Phases and dates:
-[docs/build-plan.md](docs/build-plan.md). Older component diagrams:
+Why it is built this way and what was reused: [APPROACH.md](APPROACH.md). Older component diagrams:
 [docs/architecture/](docs/architecture/README.md).
 
 Main parts:
@@ -261,7 +259,6 @@ Main parts:
 | Records | Frappe Lending doctypes for all 229 data-dictionary fields, a Decision Snapshot, an application state log | `apps/loan_advisory_portal/`, [docs/saral/LMS_DOCTYPES.md](docs/saral/LMS_DOCTYPES.md) |
 | Decisions | ZEN Engine with the rule catalogue v2 (one JSON is the single source of truth) | `decision_engine/`, `contracts/catalogue_v2/`, [docs/saral/RULE_CATALOGUE_V2.md](docs/saral/RULE_CATALOGUE_V2.md) |
 | Synthetic data services | KYC (PAN, Aadhaar), account-aggregator bank fetch, credit bureau. None of them is real | `ops/synthetic_kyc_bank/`, `apps/bureau/`, `synthetic_data/` |
-| Documents | OCR for PAN, Aadhaar, salary slip, bank statement, employment letter: PaddleOCR PP-OCRv5 mobile by default, Tesseract as automatic fallback; signature screening is a refer-only signal, never a verification | `apps/loan_advisory_portal/.../ocr/`, [docs/saral/OCR_BAKEOFF.md](docs/saral/OCR_BAKEOFF.md) |
 | Agent | One LangGraph graph: classify (Groq gpt-oss-120b → gpt-oss-20b → OmniRoute gemini-3.5-flash-lite → rules), guard, fetch the recorded decision only when the turn needs it, explain / improve / what-if / policy / clarify / hand off, validate, sanitise. Answers: Gemini 3.8 Flash via OmniRoute, Claude Sonnet 4.6 fallback | `apps/api/src/loan_advisory/agent/` |
 | Explanation tone | Customer segmentation picks *how* to explain (Guided, Simple, Standard, Detailed), never *what* | `decision_engine/segmentation/` |
 | Policy RAG | Two Qdrant collections: Bajaj documents (15 docs, 329 chunks) and RBI regulations (6 docs, 317 chunks); BM25 + EmbeddingGemma dense search, weighted RRF, optional reranker | `rag/`, `config/rag.yaml` |
@@ -383,9 +380,8 @@ a real browser on the live stack and recorded. **blocked** = could not run; the 
 | Live E2E, GUI cases (59) | 55 pass, 3 fail, 1 blocked (no counter-offer accept action) | GUI/live | live browser run, 2026-11-04 |
 | Live E2E, agent in the frontend (A5, 64 cases) | Full 64-case run on a local deployment of `main` @ 658ce44, 2026-11-04. **Harness labels: 41 pass, 17 fail, 6 blocked.** After reading every failing answer: **51 pass, 7 real fails, 6 blocked** (10 harness fails were harness false positives: the Sources card's P1–P5 labels hit the old citation selector and leak regex, "cut-off" inside a correct refusal was flagged as a leak, and "Approved" was on the card, not in the answer text). No real leak. Real fails: POL-02-EN, POL-05-EN (agent timeout, "busy" fallback); POL-09-TE, POL-10-TE (abstained, no citations); CLAR-HI (what-if error instead of a clarifying question); EXP-REVIEW-HI, EXP-REVIEW-TE (answered in English). Blocked: tenure and loan-amount what-ifs in HI/TE, and the 3-what-if cap in HI/TE. Applicants: SYN-APP-0098 replaces 0087 (portal refuses requests above ₹25L); the 0031 decline cases ran as EN 0031 / HI 0002 / TE 0003 | GUI/live (harness) + manual review | live browser run, 2026-11-04 |
 | Decision label agreement (200 applicants) | 174/200 (87.0%) before the ZEN gap fixes; after them: 187/200 offline, 188/200 with the SYN-APP-0131 ruling, plus 12 accepted design choices; 0 open defects | automated (live API, then offline) | [docs/saral/FINAL_EVAL_20261104.md](docs/saral/FINAL_EVAL_20261104.md) §7 |
-| OCR (120 synthetic pages; then 46 public sample documents / 184 pages) | Synthetic, all fields exact: Tesseract 65.5%, PaddleOCR 75.5%. Public samples, all fields, Tesseract vs PaddleOCR: PAN 4% vs 58%, Aadhaar 62% vs 98%, bank statement 6% vs 48%, payslip 51% vs 79%; Paddle median 0.52 s, p90 5.96 s per page; single annotator; six sources have no licence, so images are internal only. PaddleOCR is the default | automated | [docs/saral/OCR_BAKEOFF.md](docs/saral/OCR_BAKEOFF.md) |
 | Intent classifier (140 dev turns) | Groq gpt-oss-120b 135/140 (96.4%), 0 over budget, vs OmniRoute Sonnet 116/140 (82.9%) with 88 timeouts | automated | [docs/saral/FINAL_EVAL_20261104.md](docs/saral/FINAL_EVAL_20261104.md) §5 |
-| Fast intent router (Laya, optional, off by default) | Fine-tuned hybrid 84.3% vs 82.9% (+1.4; gate needed +2.0): failed, router off | automated | [docs/saral/FINAL_EVAL_20261104.md](docs/saral/FINAL_EVAL_20261104.md) §6, `project-management/LAYA_ROUTER.md` |
+| Fast intent router (Laya, optional, off by default) | Fine-tuned hybrid 84.3% vs 82.9% (+1.4; gate needed +2.0): failed, router off | automated | [docs/saral/FINAL_EVAL_20261104.md](docs/saral/FINAL_EVAL_20261104.md) §6 |
 | Langfuse trace review (7 cases) | 5 pass, 2 fail (counter-offer reason dropped; what-if cap not enforced) before the agent fixes | automated + manual reading | trace review |
 
 ## Disclosures
@@ -426,7 +422,7 @@ Read these before quoting any number from this repository.
 ## Known limitations
 
 Full list with counts, examples and a fix per item:
-[project-management/AGENT_LIMITATIONS.md](project-management/AGENT_LIMITATIONS.md). The main ones:
+[docs/AGENT_LIMITATIONS.md](docs/AGENT_LIMITATIONS.md). The main ones:
 
 - **Synthetic only.** Real documents, names and bureau files will behave differently. Nothing has run on real cases.
 - **No human review of the eval sets or the judge.** Both golden sets were drafted with an LLM and await
@@ -469,12 +465,9 @@ Full list with counts, examples and a fix per item:
 | What the borrower may be told | [docs/saral/REASON_DISCLOSURE_POLICY.md](docs/saral/REASON_DISCLOSURE_POLICY.md) |
 | ZEN and RAG consistency | [docs/saral/ZEN_RAG_CONSISTENCY.md](docs/saral/ZEN_RAG_CONSISTENCY.md) |
 | Synthetic datasets | [docs/saral/SYNTHETIC_DATASETS.md](docs/saral/SYNTHETIC_DATASETS.md) |
-| Functional document (problem, domain, interventions, user journey, tech construct) | [docs/functional.md](docs/functional.md) |
 | Reviewer guide: test logins and one applicant per outcome | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) |
 | Index of all docs, and which are development records | [docs/README.md](docs/README.md) |
 | Final evaluation numbers | [docs/saral/FINAL_EVAL_20261104.md](docs/saral/FINAL_EVAL_20261104.md) |
 | Editable architecture drawing | [docs/architecture.drawio.svg](docs/architecture.drawio.svg) |
-| Build plan (phases, dates, owners) | [docs/build-plan.md](docs/build-plan.md) |
-| Limitations | [project-management/AGENT_LIMITATIONS.md](project-management/AGENT_LIMITATIONS.md) |
+| Limitations | [docs/AGENT_LIMITATIONS.md](docs/AGENT_LIMITATIONS.md) |
 | Approach: who it is for, build vs reuse, architecture | [APPROACH.md](APPROACH.md) |
-| Contributors | [BUILD.md](BUILD.md) |
