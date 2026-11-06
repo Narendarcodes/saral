@@ -8,8 +8,18 @@ room and participant identity it is actually serving, and receives a fresh
 
 The worker never holds a borrower cookie or a long-lived agent credential, and the
 browser never receives an assertion: participant metadata carries identifiers only.
+
+Phone (SIP) callers have no `Voice Session` row: the worker matches the caller ID to
+an applicant and the caller proves one factor on the keypad. Only then does it call
+`phone_assertion` with the applicant and application that record names. Frappe cannot
+see the keypad, so the integration account vouches for the verification; Frappe
+re-checks that phone vouching is switched on for the site, that the application
+exists and belongs to that applicant, and that the borrower account is not closed.
+The assertion has the browser path's shape and names that one applicant and
+application. No phone number or digit is ever sent here, and nothing is logged.
 """
 
+import hashlib
 import re
 
 import frappe
@@ -23,6 +33,16 @@ from loan_advisory_portal.services import assertion, livekit_token
 
 SESSION_ID = re.compile(r"^[0-9a-f]{32}$")
 TERMINAL = ("Ended", "Expired")
+
+# Phone path. Record ids are Frappe document names (Customer, Loan Application); the room and
+# identity come from LiveKit. All are refused, not cleaned, when they fall outside these shapes.
+# A SIP participant identity can embed the caller's number (LiveKit's default is `sip_<number>`),
+# so it is only ever compared and hashed here: never stored, returned or logged.
+PHONE_FLAG = "voice_phone_assertions"
+RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,139}$")
+LIVEKIT_NAME = re.compile(r"^[A-Za-z0-9_+][A-Za-z0-9_.:@+\-]{0,127}$")
+VERIFIED_FACTORS = ("application", "bank_account")
+INACTIVE_PROFILE = ("Suspended", "Closed")
 
 
 def _require_service() -> None:
@@ -94,6 +114,76 @@ def voice_assertion(session_id: str, room: str, identity: str) -> dict:
 			"customer": row.customer,
 			"thread": thread,
 			"session_id": row.session_id,
+		}
+	)
+	return result
+
+
+def _phone_enabled() -> bool:
+	# Off unless the site turns it on: a site that never decided gives phone callers nothing.
+	return frappe.conf.get(PHONE_FLAG) in (1, True, "1", "true", "True")
+
+
+def _phone_subject(applicant: str, application: str, room: str, identity: str, factor: str) -> tuple[str, dict]:
+	"""(sub, preferences row or None). Every refusal about *which* applicant is the same NotFound."""
+	missing = NotFound(_("Applicant not found."))
+	if factor not in VERIFIED_FACTORS:
+		raise Forbidden(_("This caller has not been verified."))
+	for value, shape in ((applicant, RECORD_ID), (application, RECORD_ID), (room, LIVEKIT_NAME), (identity, LIVEKIT_NAME)):
+		if not isinstance(value, str) or not shape.fullmatch(value):
+			raise missing
+
+	row = frappe.db.get_value(
+		"Loan Application", application, ["name", "applicant_type", "applicant"], as_dict=True
+	)
+	if not row or row.applicant_type != "Customer" or row.applicant != applicant:
+		raise missing
+	if frappe.db.get_value("Customer", applicant, "disabled") in (None, 1, "1"):
+		# None: no such Customer (a dangling link); 1: disabled. Either way, nobody to speak for.
+		raise missing
+
+	profile = frappe.db.get_value(
+		"Borrower Profile",
+		{"customer": applicant},
+		["user", "status", "literacy", "preferred_locale"],
+		as_dict=True,
+	)
+	if profile and profile.status in INACTIVE_PROFILE:
+		raise missing
+	if profile and profile.user:
+		return profile.user, profile
+	# A seeded applicant with no portal account yet: the subject names the phone channel and the
+	# customer, never the caller's number.
+	return f"phone:{applicant}", profile
+
+
+@frappe.whitelist(methods=["POST"])
+def phone_assertion(
+	applicant: str, application: str, room: str, identity: str, verified_factor: str
+) -> dict:
+	"""One assertion per spoken turn for a phone caller the worker has verified on the keypad.
+
+	Same authentication as `voice_assertion` (an `Agent Integration` API key), same response shape,
+	scoped to `applicant` and `application` only. Unknown, mismatched or unverified -> no assertion.
+	"""
+	_require_service()
+	if not _phone_enabled():
+		raise Forbidden(_("Phone callers are not enabled on this site."))
+	limits.enforce("phone-assertion", 600, 3600)
+	sub, profile = _phone_subject(applicant, application, room, identity, verified_factor)
+	# A second budget per applicant: one compromised worker cannot drain a single file at the service rate.
+	limits.enforce("phone-assertion-applicant", 240, 3600, identity=f"phone:{applicant}")
+
+	literacy, locale = (profile.literacy, profile.preferred_locale) if profile else (None, None)
+	call = hashlib.sha256(f"{room}|{identity}".encode("utf-8")).hexdigest()[:32]
+	thread = f"phone-{call}"
+	result = assertion.mint(sub, applicant, application, thread, literacy, locale)
+	result.update(
+		{
+			"application": application,
+			"customer": applicant,
+			"thread": thread,
+			"session_id": call,
 		}
 	)
 	return result
