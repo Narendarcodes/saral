@@ -219,3 +219,30 @@ def test_gate_for_unknown_caller_never_opens():
     with pytest.raises(cv.NotVerified):
         asyncio.run(gate.fresh())
     assert not gate.verified
+
+
+# ----------------------------------------------------------------------------------------------- seed script
+def test_seed_script_writes_hashes_only_and_round_trips(tmp_path, monkeypatch, capsys):
+    sys.path.insert(0, str(ROOT / "scripts" / "voice"))
+    import seed_caller_directory as sd
+    monkeypatch.setenv(cv.KEY_ENV, KEY.decode())
+    out = tmp_path / "dir.json"
+    assert sd.main(["--out", str(out)]) == 0
+    entries = sd.demo_entries()
+    blob, printed = out.read_text(), capsys.readouterr().out
+    for e in entries:
+        assert e["phone"].startswith("+910000") and e["phone"] not in blob and e["phone"][1:] not in blob
+        assert e["phone"] not in printed  # demo values only with --show-demo-values
+    d = cv.CallerDirectory.load(out, KEY)
+    assert len(d) == len(entries)
+    rec = d.lookup(entries[0]["phone"])
+    assert rec.application_id == entries[0]["application_id"]
+    assert rec.matches(KEY, "application", entries[0]["application_last4"])
+    assert rec.matches(KEY, "bank_account", entries[0]["bank_account_last4"])
+
+
+def test_seed_script_refuses_without_key(tmp_path, monkeypatch):
+    sys.path.insert(0, str(ROOT / "scripts" / "voice"))
+    import seed_caller_directory as sd
+    monkeypatch.delenv(cv.KEY_ENV, raising=False)
+    assert sd.main(["--out", str(tmp_path / "x.json")]) == 2 and not (tmp_path / "x.json").exists()
