@@ -131,13 +131,12 @@ over Langfuse because it is a single container with no Postgres, ClickHouse or R
 Browser (`/voice`, livekit-client) → **self-hosted LiveKit 1.13.10** (127.0.0.1, dev keys generated locally) →
 LiveKit Agents 1.8 worker:
 * **VAD:** Silero.
-* **STT:** the Hyperion asr-http sidecar (Hyperion PR #20): IndicConformer-600M ONNX on CPU for te/hi, Whisper
-  large-v3-turbo for en.
+* **STT:** Gnani Prisma v3.0, streaming over WebSocket (`livekit-plugins-gnani` 1.8.11, `apps/voice/gnani_speech.py`);
+  language from the session locale (en-IN, hi-IN+en-IN, te-IN+en-IN) or `GNANI_STT_LANGUAGE`, `codemix` output.
 * **Reply:** `llm_node`, which exchanges the participant's `session_id` for a fresh 60-second assertion
   (`loan_advisory_portal.api.voice.voice_assertion`) and POSTs `/api/chat` with it. It is the same graph and the
   same authorization as text.
-* **TTS:** kenpath/svara-tts-v1 (Apache-2.0) on vLLM (fp8, `--gpu-memory-utilization 0.025` plus an explicit
-  768 MB KV cache, because utilization-based profiling is unreliable on the shared GPU) with a streaming SNAC sidecar.
-  Measured Oct 14, 2026: STT 2.47 GB + TTS 6.87 GB + SNAC sidecar 1.08 GB = 10.4 GB, inside the 12 GB voice budget.
+* **TTS:** Gnani Timbre v3.0 over SSE, voice `Tarika` set explicitly, language per locale, speed 0.85-1.15
+  (`GNANI_TTS_*`). Speech uses no local GPU; the earlier Hyperion STT and svara-TTS sidecars were removed (Nov 2026).
 
 The answer card (decision, citations) goes over the data channel.

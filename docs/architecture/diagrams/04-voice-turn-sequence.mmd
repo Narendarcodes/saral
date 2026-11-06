@@ -4,17 +4,17 @@ sequenceDiagram
     actor A as Applicant (browser /voice)
     participant LK as LiveKit 1.13 :7880
     participant W as Voice worker<br/>(LiveKit Agents 1.8)
-    participant STT as STT :8791
+    participant STT as Gnani Prisma v3.0 STT
     participant S as Server :8095
     participant G as Graph + SentenceGate<br/>(inside the server)
-    participant TTS as TTS :8793 (svara + SNAC)
+    participant TTS as Gnani Timbre v3.0 TTS
 
     A->>S: POST /api/session, then /api/livekit-token
     S-->>A: LiveKit JWT (metadata carries the advisory session token)
     A->>LK: join room, publish mic
     LK->>W: audio frames
     W->>W: Silero VAD: end of speech
-    W->>STT: utterance (en → Whisper large-v3-turbo, hi/te → IndicConformer)
+    W->>STT: streamed PCM (language from the session locale)
     STT-->>W: transcript
     W->>S: POST /api/chat/stream, channel = voice<br/>Authorization: Bearer session token
     S->>G: run graph (voice deadline AGENT_VOICE_DEADLINE_S, default 25 s)
@@ -25,8 +25,8 @@ sequenceDiagram
         G->>G: same deterministic guards on the sentence
         alt sentence passes
             G-->>W: {"type":"sentence"}
-            W->>TTS: POST /v1/tts (streamed PCM 24 kHz)
-            TTS-->>W: PCM chunks as they decode
+            W->>TTS: POST /api/v1/tts/sse (voice Tarika, speed)
+            TTS-->>W: PCM chunks as they arrive
             W->>LK: agent audio track
             LK-->>A: spoken sentence
         else sentence flagged

@@ -82,7 +82,7 @@ reapplications are hypotheses until measured with a lender.
 | **Data → conventional workflow → policy RAG → agent → voice** | Each layer is tested before the next consumes it; the agent never compensates for an untested decision core |
 | **One LangGraph graph, not multi-agent** | The task is a controlled workflow with a few tools; no evaluation showed a need for multiple agents |
 | **Standard-library advisory server, plain `requests` to the LLM** | Handoff rule: no FastAPI, LiteLLM or Hermes in the advisory server; it runs on `http.server`. The synthetic bureau (PR #17) is a separate local-only FastAPI service, not part of the advisory path. Fewer moving parts on a shared droplet |
-| **Self-hosted, free/open components** | Frappe Lending, ZEN, Qdrant, vLLM (gpt-oss-120b), LiveKit, IndicConformer, Whisper, svara-tts, Arize Phoenix, optional Langfuse |
+| **Self-hosted, free/open components** | Frappe Lending, ZEN, Qdrant, vLLM (gpt-oss-120b), LiveKit, Arize Phoenix (speech: Gnani Prisma + Timbre API since Nov 2026), optional Langfuse |
 
 **Bank vs NBFC (PR #5).** RBI requires banks to give the main reasons for a rejection in writing (RBC Directions 2025 for
 commercial banks, para 331). The NBFC Fair Practices Code and Bajaj's own FPC have no such clause; Bajaj's FAQ says only
@@ -237,7 +237,9 @@ second-document drop described above and an amount-increase guard false positive
 Browser `/voice` → self-hosted LiveKit 1.13 → LiveKit Agents 1.8 worker → Silero VAD → STT sidecar (IndicConformer-600M
 on CPU for hi/te, Whisper large-v3-turbo for en) → `POST /api/chat/stream` with the participant's session token (the same
 graph, guards and authorization as text) → svara-tts-v1 on vLLM with a streaming SNAC sidecar → LiveKit. The decision
-card goes over the data channel.
+card goes over the data channel. *Since Nov 2026 the speech engines are Gnani Prisma v3.0 (STT) and Timbre v3.0 (TTS)
+through `livekit-plugins-gnani`; the self-hosted STT and TTS sidecars described here were removed. The latency figures
+below were measured on the old engines.*
 
 **Latency work.** In PR #7 the full answer had to be generated and validated before TTS could start; the breakdown for
 a warm English turn was STT 0.13–0.25 s, classify 0.5–1.9 s, LLM TTFT 0.5–1.0 s, waiting for the full answer and guard
