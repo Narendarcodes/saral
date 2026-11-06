@@ -1,13 +1,13 @@
 """LiveKit Agents voice worker that drives the SAME LangGraph advisory graph as the text chat.
 
-    LIVEKIT_URL=ws://127.0.0.1:7880 LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=... \
-    AGENT_HTTP=http://127.0.0.1:8095 STT_HTTP=http://127.0.0.1:8791 TTS_HTTP=http://127.0.0.1:8793 \
-        python agent_worker.py start
+    LIVEKIT_URL=ws://127.0.0.1:7880 LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=... GNANI_API_KEY=... \
+    AGENT_HTTP=http://127.0.0.1:8095 python agent_worker.py start
 
-Pipeline (self-hosted, no cloud services):
-  browser mic -> LiveKit (self-hosted server) -> Silero VAD -> STT sidecar (Hyperion asr-http: IndicConformer for
-  te/hi, Whisper large-v3-turbo for en) -> llm_node = POST /api/chat on the advisory server (LangGraph graph:
-  authorization, ZEN evidence, what-if, policy RAG, guards) -> svara-tts-v1 streaming sidecar -> LiveKit -> browser.
+Pipeline (speech is Gnani only; see gnani_speech.py and the GNANI_* settings):
+  browser mic -> LiveKit -> Silero VAD (turn detection, barge-in) + Gnani Prisma v3.0 streaming STT (WebSocket)
+  -> llm_node = POST /api/chat on the advisory server (LangGraph graph: authorization, ZEN evidence, what-if,
+  policy RAG, guards; its LLM is configured there, not here) -> Gnani Timbre v3.0 TTS (voice Tarika by default)
+  -> LiveKit -> browser.
 
 Authorization: Frappe mints the LiveKit token and writes the `Voice Session` row before the browser joins, so
 the row is the authorisation. Participant metadata carries `{session_id, user, customer, application}` and no
@@ -32,9 +32,7 @@ import sys
 
 import aiohttp
 from livekit import rtc
-from livekit.agents import (DEFAULT_API_CONNECT_OPTIONS, Agent, AgentSession, APIConnectOptions, JobContext,
-                            JobProcess, WorkerOptions, cli, llm, stt, tts, utils)
-from livekit.agents.types import NOT_GIVEN, NotGivenOr
+from livekit.agents import Agent, AgentSession, JobContext, JobProcess, WorkerOptions, cli, llm
 from livekit.plugins import silero
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "api", "src"))
@@ -45,9 +43,10 @@ from loan_advisory.agent.streaming import speakable  # noqa: E402
 from loan_advisory.agent.voice_log import turn_row  # noqa: E402
 from loan_advisory.state_paths import append_private  # noqa: E402  (P0c private creation)
 from voice_assertion_exchange import Assertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
+from gnani_speech import build_stt, build_tts  # noqa: E402  (Gnani Prisma STT + Timbre TTS)
 
 CFG = VoiceSettings.from_env()
-AGENT_HTTP, STT_HTTP, TTS_HTTP, TURN_LOG = CFG.agent_http, CFG.stt_http, CFG.tts_http, CFG.turn_log
+AGENT_HTTP, TURN_LOG = CFG.agent_http, CFG.turn_log
 SESSION_ID = re.compile(r"^[0-9a-f]{32}$")
 GREETING = {
     "en": "Hello. I can explain your loan decision, suggest what to work on, or answer policy questions. What would you like to know?",
@@ -107,76 +106,6 @@ class Turn:
         with append_private(Path(TURN_LOG)) as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
         self.reset()
-
-
-class SidecarSTT(stt.STT):
-    """Non-streaming STT over the Hyperion asr-http sidecar; the session wraps it with Silero VAD."""
-
-    def __init__(self, language: str, turn: Turn):
-        super().__init__(capabilities=stt.STTCapabilities(streaming=False, interim_results=False))
-        self.language, self.turn = language, turn
-        self._http: aiohttp.ClientSession | None = None
-
-    @property
-    def model(self) -> str:
-        return "indicconformer-600m" if self.language in ("te", "hi") else "whisper-large-v3-turbo"
-
-    @property
-    def provider(self) -> str:
-        return "hyperion-asr-http"
-
-    async def _recognize_impl(self, buffer, *, language: NotGivenOr[str] = NOT_GIVEN,
-                              conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS) -> stt.SpeechEvent:
-        import base64
-        self.turn.mark("user_stopped")  # VAD end-of-speech handed the buffer to us
-        frame = rtc.combine_audio_frames(buffer)
-        wav = frame.to_wav_bytes()
-        self._http = self._http or aiohttp.ClientSession()
-        t0 = time.perf_counter()
-        async with self._http.post(f"{STT_HTTP}/v1/transcribe", json={"language": self.language, "audio_b64": base64.b64encode(wav).decode(),
-                                                                       "normalize": "none"}, timeout=aiohttp.ClientTimeout(total=30)) as r:
-            j = await r.json()
-        self.turn.mark("stt_done")
-        self.turn.info.update(stt_ms=round((time.perf_counter() - t0) * 1000, 1), stt_engine=j.get("engine"),
-                              user_audio_s=round(frame.duration, 2))
-        return stt.SpeechEvent(type=stt.SpeechEventType.FINAL_TRANSCRIPT,
-                               alternatives=[stt.SpeechData(language=self.language, text=j.get("text", ""))])
-
-
-class SvaraTTS(tts.TTS):
-    def __init__(self, language: str, turn: Turn, gender: str = CFG.tts_gender):
-        super().__init__(capabilities=tts.TTSCapabilities(streaming=False), sample_rate=24000, num_channels=1)
-        self.language, self.turn, self.gender = language, turn, gender
-        self._http: aiohttp.ClientSession | None = None
-
-    @property
-    def model(self) -> str:
-        return "kenpath/svara-tts-v1"
-
-    @property
-    def provider(self) -> str:
-        return "self-hosted-vllm"
-
-    def synthesize(self, text: str, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS) -> tts.ChunkedStream:
-        return _SvaraStream(tts=self, input_text=text, conn_options=conn_options)
-
-
-class _SvaraStream(tts.ChunkedStream):
-    async def _run(self, output_emitter: tts.AudioEmitter) -> None:
-        t: SvaraTTS = self._tts  # type: ignore[assignment]
-        t._http = t._http or aiohttp.ClientSession()
-        output_emitter.initialize(request_id=utils.shortuuid(), sample_rate=24000, num_channels=1, mime_type="audio/pcm")
-        t0 = time.perf_counter()
-        first = True
-        async with t._http.post(f"{TTS_HTTP}/v1/tts", json={"text": self.input_text, "language": t.language, "gender": t.gender},
-                                timeout=aiohttp.ClientTimeout(total=90)) as r:
-            async for chunk in r.content.iter_chunked(4800):
-                if first:
-                    t.turn.mark("tts_first_audio")
-                    t.turn.info.setdefault("tts_ttfa_ms", round((time.perf_counter() - t0) * 1000, 1))
-                    first = False
-                output_emitter.push(chunk)
-        output_emitter.flush()
 
 
 class GraphLLM(llm.LLM):
@@ -270,8 +199,12 @@ class AdvisorAgent(Agent):
         async for sentence in text:
             if not sentence.strip():
                 continue
+            t0 = time.perf_counter()
             async with tts_engine.synthesize(sentence) as stream:
                 async for ev in stream:
+                    if "tts_first_audio" not in self.turn.t:
+                        self.turn.mark("tts_first_audio")
+                        self.turn.info.setdefault("tts_ttfa_ms", round((time.perf_counter() - t0) * 1000, 1))
                     yield ev.frame
 
 
@@ -294,8 +227,17 @@ async def entrypoint(ctx: JobContext):
     first = await auth.fresh()  # fail fast: an unverified session never hears a greeting
     locale = first.get("locale") if first.get("locale") in ("en", "hi", "te") else "en"
     turn = Turn()
-    session = AgentSession(vad=ctx.proc.userdata["vad"], stt=SidecarSTT(locale, turn), tts=SvaraTTS(locale, turn), llm=GraphLLM(),
+    stt_engine, tts_engine = build_stt(CFG.speech, locale), build_tts(CFG.speech, locale)
+    session = AgentSession(vad=ctx.proc.userdata["vad"], stt=stt_engine, tts=tts_engine, llm=GraphLLM(),
                            min_endpointing_delay=CFG.min_endpointing_s)
+
+    @session.on("user_input_transcribed")
+    def _t(ev):
+        if getattr(ev, "is_final", False):  # timings and engine only; the words never enter the turn info
+            turn.mark("stt_done")
+            turn.info.update(stt_engine=f"gnani/{stt_engine.model}")
+            if "user_stopped" in turn.t:
+                turn.info["stt_ms"] = round((turn.t["stt_done"] - turn.t["user_stopped"]) * 1000, 1)
 
     @session.on("user_state_changed")
     def _u(ev):

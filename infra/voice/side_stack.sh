@@ -3,7 +3,7 @@
 # the live demo stack (chat :8095, LiveKit :7880, worker) keeps running untouched.
 #   up:   SIDE_REPO=/root/hx/loan/repo-upgrade infra/voice/side_stack.sh up
 #   down: infra/voice/side_stack.sh down
-# Shares the live STT (:8791) and TTS (:8793) sidecars and the read-only Frappe; everything else is separate:
+# Shares the read-only Frappe; speech goes to Gnani (needs GNANI_API_KEY in secrets.env); everything else is separate:
 #   chat server   :${SIDE_PORT:-8096}  (own audit/handoff logs, own Qdrant copy; verification uses the site assertion secret)
 #   LiveKit       :${SIDE_LK_PORT:-7890} (own dev keys, rtc tcp 7891, udp 50300-50400)
 #   voice worker  health :${SIDE_WORKER_PORT:-8082}, joins only the side LiveKit
