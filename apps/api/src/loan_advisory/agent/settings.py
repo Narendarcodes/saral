@@ -13,6 +13,19 @@
     AGENT_CITATION_MODE      how policy citations are produced and checked (see loan_advisory.agent.citations).
     AGENT_VERIFY_MIN_LEFT_S  llm_verify only: minimum time left in the turn to run the citation-verifier call.
     AGENT_STREAM_BRIDGE      phrase spoken before a corrected answer when a streamed draft was replaced.
+
+Voice worker speech (Gnani only; GnaniSpeechSettings):
+    GNANI_API_KEY            read by the Gnani plugin from the environment; never stored, logged or passed around here.
+    GNANI_STT_MODEL          prisma-v3.0 (default) | prisma-v2.5
+    GNANI_STT_LANGUAGE       locale (default: en-IN / hi-IN,en-IN / te-IN,en-IN by session locale) | indic-auto |
+                             a code such as te-IN | a list of up to four such as hi-IN,en-IN (Prisma v3.0)
+    GNANI_STT_FORMAT         codemix (default) | verbatim | transcribe | transliterate
+    GNANI_TTS_MODEL          timbre-v3.0 (default) | timbre-v2.5   (timbre-v2.0 is retired and refused)
+    GNANI_TTS_VOICE          Tarika (default); a Timbre v3.0 catalog voice when the model is v3.0
+    GNANI_TTS_LANGUAGE       locale (default: en-IN / hi-IN / te-IN) | auto | hi-en | any Timbre language code
+    GNANI_TTS_SPEED          0.85-1.15, default 1.0
+    GNANI_TTS_SAMPLE_RATE    8000 | 16000 | 22050 (default) | 44100
+    GNANI_TTS_METHOD         sse (default) | websocket | rest
 """
 import os
 from dataclasses import dataclass, fields
@@ -76,25 +89,120 @@ def _f(env, key, default):
     return float(raw) if raw not in (None, "") else default
 
 
+# ---------------------------------------------------------------------------------------- Gnani speech (voice worker)
+# Speech in the voice worker is Gnani only: Prisma (STT, streaming WebSocket) and Timbre (TTS). The values below are
+# the documented ones (docs.gnani.ai, read 2026-11-06). Timbre v2.0 is retired and is refused outright.
+GNANI_STT_MODELS = ("prisma-v3.0", "prisma-v2.5")
+GNANI_STT_FORMATS = ("verbatim", "transcribe", "codemix", "transliterate")
+GNANI_V3_ONLY_FORMATS = ("codemix", "transliterate")
+GNANI_LANGS = ("bn-IN", "en-IN", "gu-IN", "hi-IN", "kn-IN", "ml-IN", "mr-IN", "pa-IN", "ta-IN", "te-IN")
+GNANI_TTS_MODELS = ("timbre-v3.0", "timbre-v2.5")
+GNANI_TTS_LANGS = GNANI_LANGS + ("auto", "hi-en")
+# Timbre v3.0 voice catalog; every voice speaks all ten languages. Avinash, Prakash and Harshad are described by
+# Gnani as collections / payment-recovery voices, so none of them is ever the default.
+TIMBRE_V3_VOICES = ("Shivani", "Lakshmi", "Kalpana", "Chetana", "Vasudha", "Riyaa", "Tarika",
+                    "Avinash", "Shubham", "Prakash", "Devansh", "Yashraj", "Harshad")
+TTS_SPEED_MIN, TTS_SPEED_MAX = 0.85, 1.15
+TTS_SAMPLE_RATES = (8000, 16000, 22050, 44100)  # what livekit-plugins-gnani 1.8.11 accepts
+TTS_METHODS = ("sse", "websocket", "rest")
+# Session locale (en/hi/te, from the Frappe assertion) -> Gnani language. STT also hears English, because borrowers
+# mix it in ("EMI", "CIBIL"); Prisma v3.0 treats the list as a hint, not a lock.
+LOCALE_STT = {"en": "en-IN", "hi": "hi-IN,en-IN", "te": "te-IN,en-IN"}
+LOCALE_TTS = {"en": "en-IN", "hi": "hi-IN", "te": "te-IN"}
+
+
+def _stt_language_ok(value: str, model: str) -> bool:
+    if value == "indic-auto":
+        return model == "prisma-v3.0"
+    parts = [p.strip() for p in value.split(",")]
+    if not parts or any(p not in GNANI_LANGS for p in parts) or len(set(parts)) != len(parts):
+        return False
+    return len(parts) == 1 or (model == "prisma-v3.0" and len(parts) <= 4)
+
+
+@dataclass(frozen=True)
+class GnaniSpeechSettings:
+    """Gnani Prisma (STT) + Timbre (TTS) configuration. The API key is never stored here: the plugin reads
+    GNANI_API_KEY from the environment itself, so it never reaches a log line or a repr."""
+    stt_model: str = "prisma-v3.0"
+    stt_language: str = "locale"      # "locale" = derive from the session locale (LOCALE_STT); else a Gnani code/list
+    stt_format: str = "codemix"       # Prisma v3.0: English words stay in Latin script
+    tts_model: str = "timbre-v3.0"
+    tts_voice: str = "Tarika"         # warm banking / customer-care voice; never the plugin default
+    tts_language: str = "locale"      # "locale" = LOCALE_TTS; else a Timbre language code
+    tts_speed: float = 1.0            # 0.85-1.15; the tone engine will set this per turn later
+    tts_sample_rate: int = 22050
+    tts_method: str = "sse"           # SSE streams chunks; documented with model/voice/language/speed
+
+    def __post_init__(self):
+        if self.stt_model not in GNANI_STT_MODELS:
+            raise ValueError(f"GNANI_STT_MODEL must be one of {GNANI_STT_MODELS}, got {self.stt_model!r}")
+        if self.stt_format not in GNANI_STT_FORMATS:
+            raise ValueError(f"GNANI_STT_FORMAT must be one of {GNANI_STT_FORMATS}, got {self.stt_format!r}")
+        if self.stt_format in GNANI_V3_ONLY_FORMATS and self.stt_model != "prisma-v3.0":
+            raise ValueError(f"GNANI_STT_FORMAT={self.stt_format} needs prisma-v3.0")
+        if self.stt_language != "locale" and not _stt_language_ok(self.stt_language, self.stt_model):
+            raise ValueError(f"GNANI_STT_LANGUAGE {self.stt_language!r} is not a valid language (or list) for {self.stt_model}")
+        if self.tts_model not in GNANI_TTS_MODELS:  # timbre-v2.0 is retired
+            raise ValueError(f"GNANI_TTS_MODEL must be one of {GNANI_TTS_MODELS}, got {self.tts_model!r}")
+        if not self.tts_voice:
+            raise ValueError("GNANI_TTS_VOICE must be set explicitly")
+        if self.tts_model == "timbre-v3.0" and self.tts_voice not in TIMBRE_V3_VOICES:
+            raise ValueError(f"GNANI_TTS_VOICE {self.tts_voice!r} is not a Timbre v3.0 voice ({', '.join(TIMBRE_V3_VOICES)})")
+        if self.tts_language != "locale" and self.tts_language not in GNANI_TTS_LANGS:
+            raise ValueError(f"GNANI_TTS_LANGUAGE must be 'locale' or one of {GNANI_TTS_LANGS}, got {self.tts_language!r}")
+        check_tts_speed(self.tts_speed)
+        if self.tts_sample_rate not in TTS_SAMPLE_RATES:
+            raise ValueError(f"GNANI_TTS_SAMPLE_RATE must be one of {TTS_SAMPLE_RATES}, got {self.tts_sample_rate}")
+        if self.tts_method not in TTS_METHODS:
+            raise ValueError(f"GNANI_TTS_METHOD must be one of {TTS_METHODS}, got {self.tts_method!r}")
+
+    def stt_language_for(self, locale: str) -> str:
+        return LOCALE_STT.get(locale, LOCALE_STT["en"]) if self.stt_language == "locale" else self.stt_language
+
+    def tts_language_for(self, locale: str) -> str:
+        return LOCALE_TTS.get(locale, LOCALE_TTS["en"]) if self.tts_language == "locale" else self.tts_language
+
+    @classmethod
+    def from_env(cls, env=None) -> "GnaniSpeechSettings":
+        env = os.environ if env is None else env
+        d = cls()
+
+        def g(key, default):
+            raw = env.get(key)
+            return raw.strip() if raw not in (None, "") else default
+        return cls(stt_model=g("GNANI_STT_MODEL", d.stt_model), stt_language=g("GNANI_STT_LANGUAGE", d.stt_language),
+                   stt_format=g("GNANI_STT_FORMAT", d.stt_format), tts_model=g("GNANI_TTS_MODEL", d.tts_model),
+                   tts_voice=g("GNANI_TTS_VOICE", d.tts_voice), tts_language=g("GNANI_TTS_LANGUAGE", d.tts_language),
+                   tts_speed=_f(env, "GNANI_TTS_SPEED", d.tts_speed),
+                   tts_sample_rate=int(_f(env, "GNANI_TTS_SAMPLE_RATE", d.tts_sample_rate)),
+                   tts_method=g("GNANI_TTS_METHOD", d.tts_method))
+
+
+def check_tts_speed(speed: float) -> float:
+    """Timbre's documented speed range is 0.85-1.15; anything outside is a bug, not something to clamp quietly."""
+    if isinstance(speed, bool) or not isinstance(speed, (int, float)) or not (TTS_SPEED_MIN <= float(speed) <= TTS_SPEED_MAX):
+        raise ValueError(f"Timbre speed must be within {TTS_SPEED_MIN}-{TTS_SPEED_MAX}, got {speed!r}")
+    return float(speed)
+
+
 @dataclass(frozen=True)
 class VoiceSettings:
     """LiveKit voice worker settings (env). The worker's HTTP timeout must exceed the graph's voice deadline, so the
     graph's own template fallback always answers first and the worker never waits out its timeout."""
     agent_http: str = "http://127.0.0.1:8095"
-    stt_http: str = "http://127.0.0.1:8791"
-    tts_http: str = "http://127.0.0.1:8793"
     turn_log: str = "/root/hx/loan/voice/turns.jsonl"
     http_timeout_s: float = 40.0
     filler_after_s: float = 4.0          # say "one moment" if no guarded sentence has arrived by then
     stream: bool = True                  # use /api/chat/stream (sentence streaming) instead of /api/chat
     min_endpointing_s: float = 0.5       # LiveKit AgentSession end-of-turn delay after VAD silence (library default 0.5)
     vad_min_silence_s: float = 0.55      # Silero VAD silence that ends speech (library default 0.55)
-    tts_gender: str = "Female"
     frappe_url: str = "http://127.0.0.1:8080"   # Frappe origin the worker asks for assertions
     frappe_api_key: str = ""                    # integration account (Agent Integration role); never logged
     frappe_api_secret: str = ""
     filler: dict = None
     unreachable: dict = None
+    speech: GnaniSpeechSettings = None   # Gnani Prisma STT + Timbre TTS
 
     def __post_init__(self):
         object.__setattr__(self, "filler", self.filler or {
@@ -103,19 +211,19 @@ class VoiceSettings:
             "en": "Sorry, I couldn't reach the advisory service just now. Please ask again in a moment.",
             "hi": "माफ़ कीजिए, अभी सलाह सेवा से जुड़ नहीं पाया। कृपया एक पल बाद फिर पूछें।",
             "te": "క్షమించండి, ఇప్పుడు సలహా సేవను చేరుకోలేకపోయాను. దయచేసి ఒక్క క్షణం తర్వాత మళ్ళీ అడగండి."})
+        object.__setattr__(self, "speech", self.speech or GnaniSpeechSettings())
 
     @classmethod
     def from_env(cls, env=None) -> "VoiceSettings":
         env = os.environ if env is None else env
         d = cls()
-        return cls(agent_http=env.get("AGENT_HTTP", d.agent_http), stt_http=env.get("STT_HTTP", d.stt_http),
-                   tts_http=env.get("TTS_HTTP", d.tts_http), turn_log=env.get("VOICE_TURN_LOG", d.turn_log),
+        return cls(agent_http=env.get("AGENT_HTTP", d.agent_http), turn_log=env.get("VOICE_TURN_LOG", d.turn_log),
                    http_timeout_s=_f(env, "VOICE_HTTP_TIMEOUT_S", d.http_timeout_s),
                    filler_after_s=_f(env, "VOICE_FILLER_AFTER_S", d.filler_after_s),
                    stream=env.get("VOICE_STREAM", "1") not in ("0", "false", "no"),
                    min_endpointing_s=_f(env, "VOICE_MIN_ENDPOINTING_S", d.min_endpointing_s),
                    vad_min_silence_s=_f(env, "VOICE_VAD_MIN_SILENCE_S", d.vad_min_silence_s),
-                   tts_gender=env.get("VOICE_TTS_GENDER", d.tts_gender),
                    frappe_url=env.get("FRAPPE_URL", d.frappe_url),
                    frappe_api_key=env.get("FRAPPE_API_KEY", d.frappe_api_key),
-                   frappe_api_secret=env.get("FRAPPE_API_SECRET", d.frappe_api_secret))
+                   frappe_api_secret=env.get("FRAPPE_API_SECRET", d.frappe_api_secret),
+                   speech=GnaniSpeechSettings.from_env(env))

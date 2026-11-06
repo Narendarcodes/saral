@@ -1,0 +1,8 @@
+# Voice worker dependencies (apps/voice). Installed in the worker's container, not by the root requirements.txt.
+#   python -m pip install -r apps/voice/requirements.txt
+# Speech is Gnani only (Prisma STT + Timbre TTS) through the official LiveKit plugin. gnani_speech.py wraps a private
+# helper of livekit-plugins-gnani 1.8.11 (tts._build_payload), so the plugin is pinned exactly; re-check that file
+# before raising the pin.
+livekit-agents[silero,gnani]~=1.8.11
+livekit-plugins-gnani==1.8.11
+aiohttp>=3.9
