@@ -101,9 +101,17 @@ LiveKit SIP relays those tones to the room as `sip_dtmf_received`. If your trunk
 forwarding setting, it must be on, and the dispatch rule must not hide the caller's number (`hide_phone_number`
 off), or every caller is treated as unknown. Phone prompts are English only.
 
-**Not built yet.** After verification the worker asks Frappe for an assertion at
-`loan_advisory_portal.api.voice.phone_assertion` (`PhoneAssertions`); that Frappe method does not exist on this
-branch, so a verified caller currently hears the "couldn't reach the advisory service" line (fails closed). The
+**Phone assertion.** After verification the worker asks Frappe for an assertion at
+`loan_advisory_portal.api.voice.phone_assertion` (`PhoneAssertions`) with the applicant and application the
+directory record names, the room, the participant identity and the factor that was verified (never a digit). It
+authenticates exactly like `voice_assertion` (an `Agent Integration` API key) and returns the same shape: a 60-second
+assertion for that one customer and application, with thread `phone-<hash of room and identity>`. Frappe cannot see
+the keypad, so the integration account vouches for the verification. Frappe refuses unless the site sets
+`voice_phone_assertions: 1` in `site_config.json` (off by default), and answers an unknown application, one that
+belongs to another applicant, a disabled customer or a suspended/closed borrower with the same 404. An applicant with
+no portal account gets `sub = phone:<customer>`. The method is read-only, logs nothing, and only hashes the SIP
+identity (which can embed the caller's number). Budgets: 600/hour per service account, 240/hour per applicant. Until a
+site turns the flag on, a verified caller hears the "couldn't reach the advisory service" line (fails closed). The
 "connect you to a member of our team" offer is spoken only; no SIP transfer is wired.
 
 **Demo-grade.** Four digits are 10,000 combinations and caller ID can be spoofed. This shows the flow; it is not

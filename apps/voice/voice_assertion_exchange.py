@@ -41,9 +41,9 @@ class PhoneAssertions:
     caller has passed keypad verification. It names the applicant the caller ID matched and the factor that was
     verified; it never carries a digit.
 
-    NOT YET SERVED: Frappe has no `phone_assertion` method on this branch. Until one exists (it must re-check that the
-    integration account may vouch for phone callers), a verified caller's questions get the worker's "couldn't reach
-    the advisory service" line instead of an answer, which fails closed.
+    Served by Frappe's `loan_advisory_portal.api.voice.phone_assertion`, which is off unless the site sets
+    `voice_phone_assertions`, and re-checks that the application belongs to the applicant. Any refusal surfaces here
+    as a RuntimeError, so the caller hears the worker's "couldn't reach the advisory service" line (fails closed).
     """
 
     def __init__(self, http: aiohttp.ClientSession, applicant: str, application: str, room: str, identity: str, *,
