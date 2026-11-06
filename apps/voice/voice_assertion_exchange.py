@@ -31,3 +31,39 @@ class Assertions:
         if not message.get("assertion"):
             raise RuntimeError("voice assertion response carried no assertion")
         return message
+
+
+PHONE_ASSERTION_PATH = "/api/method/loan_advisory_portal.api.voice.phone_assertion"
+
+
+class PhoneAssertions:
+    """Phone (SIP) counterpart of `Assertions`, used only behind `caller_verification.VerifiedGate`, i.e. after the
+    caller has passed keypad verification. It names the applicant the caller ID matched and the factor that was
+    verified; it never carries a digit.
+
+    NOT YET SERVED: Frappe has no `phone_assertion` method on this branch. Until one exists (it must re-check that the
+    integration account may vouch for phone callers), a verified caller's questions get the worker's "couldn't reach
+    the advisory service" line instead of an answer, which fails closed.
+    """
+
+    def __init__(self, http: aiohttp.ClientSession, applicant: str, application: str, room: str, identity: str, *,
+                 frappe_url: str, api_key: str, api_secret: str, timeout_s: float):
+        self.http = http
+        self.applicant, self.application, self.room, self.identity = applicant, application, room, identity
+        self.frappe_url, self.api_key, self.api_secret = frappe_url, api_key, api_secret
+        self.timeout_s = timeout_s
+
+    async def fresh(self, factor: str) -> dict:
+        if not (self.api_key and self.api_secret):
+            raise RuntimeError("voice worker has no Frappe integration credential")
+        headers = {"Authorization": f"token {self.api_key}:{self.api_secret}"}
+        body = {"applicant": self.applicant, "application": self.application, "room": self.room,
+                "identity": self.identity, "verified_factor": factor}
+        async with self.http.post(f"{self.frappe_url.rstrip('/')}{PHONE_ASSERTION_PATH}", headers=headers, json=body,
+                                  timeout=aiohttp.ClientTimeout(total=self.timeout_s)) as response:
+            if response.status != 200:
+                raise RuntimeError(f"phone assertion refused: HTTP {response.status}")
+            message = (await response.json()).get("message") or {}
+        if not message.get("assertion"):
+            raise RuntimeError("phone assertion response carried no assertion")
+        return message

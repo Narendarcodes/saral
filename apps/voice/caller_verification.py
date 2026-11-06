@@ -329,3 +329,18 @@ class VerifiedGate:
         if self._exchange is None:
             raise NotVerified("no assertion exchange for phone callers")
         return await self._exchange()
+
+
+def dtmf_handler(caller_identity: str, verifier: KeypadVerifier | None):
+    """Listener for the LiveKit room event `sip_dtmf_received` (livekit.rtc.SipDTMF: .digit, .code, .participant).
+    Only the caller's own presses count; nothing is logged and nothing reaches the chat context."""
+    def _on(ev) -> None:
+        p = getattr(ev, "participant", None)
+        if verifier is None or p is None or getattr(p, "identity", None) != caller_identity:
+            return
+        digit = getattr(ev, "digit", "") or ""
+        if not digit:  # RFC 4733 event codes: 0-9 digits, 10 '*', 11 '#'
+            code = getattr(ev, "code", None)
+            digit = "0123456789*#"[code] if isinstance(code, int) and 0 <= code <= 11 else ""
+        verifier.press(digit)
+    return _on
