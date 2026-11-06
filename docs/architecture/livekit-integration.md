@@ -72,6 +72,43 @@ LiveKit room ── participant metadata {session_id, user, customer, applicatio
 
 There is no local fallback: without the Frappe credential the worker raises before greeting.
 
+## Phone callers: keypad verification (SIP + DTMF)
+
+A phone call joins the room as a LiveKit SIP participant, so there is no `Voice Session` row and no browser login.
+The worker (`apps/voice/agent_worker.py`, `phone_entrypoint`) takes the phone path instead
+(`apps/voice/caller_verification.py`):
+
+1. **Caller ID.** The SIP from-number (participant attribute `sip.phoneNumber`) is looked up, by its HMAC, in a
+   directory of synthetic applicants (`CALLER_DIRECTORY`). An unknown or hidden number is told that no account details
+   can be shared on this call and is offered a person. With no key or directory, nobody can be verified (fails closed).
+2. **`verify_caller` (keypad only).** "Press 1 to verify with your loan application number, or 2 with your bank
+   account number." then "Enter the last 4 digits." Only the factor the caller chose is checked. Keys come from the
+   room event `sip_dtmf_received` (`rtc.SipDTMF`: `digit`, `code`, `participant`; only the caller's own presses count),
+   never from speech, and `GetDtmfTask` (which also accepts spoken digits through the LLM) is not used.
+3. **Read-back.** "You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype." is a fixed template synthesized
+   directly by TTS (`session.say(masked_text, audio=...)`), so the room transcript shows `You entered ****.` and
+   nothing is added to the chat context. `*` clears the entry; `#` is ignored.
+4. **Check.** HMAC-SHA256(`CALLER_VERIFY_HMAC_KEY`, salt|factor|last4), compared in constant time; the directory
+   holds hashes only (`scripts/voice/seed_caller_directory.py`). Three confirmed mismatches lock verification for
+   the rest of the call and offer a person. No keypress for 8 s plays a nudge; 15 s ends the attempt (saying
+   "verify" starts again).
+5. **Gate.** Until the caller is verified, `llm_node` never calls the advisory server (`VerifiedGate.fresh()` raises),
+   so no application fact can be spoken. The LLM side only ever sees an outcome word (`verified`, `locked`,
+   `timeout`, `unknown_caller`, `unavailable`); digits are never logged (`****`).
+
+**SIP configuration.** The provider trunk must send DTMF as RFC 4733 / RFC 2833 `telephone-event` (not in-band audio);
+LiveKit SIP relays those tones to the room as `sip_dtmf_received`. If your trunk or dispatch rule has a DTMF
+forwarding setting, it must be on, and the dispatch rule must not hide the caller's number (`hide_phone_number`
+off), or every caller is treated as unknown. Phone prompts are English only.
+
+**Not built yet.** After verification the worker asks Frappe for an assertion at
+`loan_advisory_portal.api.voice.phone_assertion` (`PhoneAssertions`); that Frappe method does not exist on this
+branch, so a verified caller currently hears the "couldn't reach the advisory service" line (fails closed). The
+"connect you to a member of our team" offer is spoken only; no SIP transfer is wired.
+
+**Demo-grade.** Four digits are 10,000 combinations and caller ID can be spoofed. This shows the flow; it is not
+production authentication.
+
 ## Privacy rules that hold
 
 - The LiveKit API secret never leaves the server; the browser gets a scoped, short-lived JWT only.

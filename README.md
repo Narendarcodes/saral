@@ -361,6 +361,18 @@ python -m pip install -r apps/voice/requirements.txt
 GNANI_API_KEY=... python scripts/voice/gnani_roundtrip.py --out /tmp/gnani_rt   # one Timbre line + one Prisma transcription
 ```
 
+**Phone callers (SIP) verify on the keypad.** A caller's number is matched to a synthetic applicant; an unknown number
+gets no account details and is offered a person. The caller then picks one factor (1: loan application number, 2: bank
+account number) and keys its last 4 digits, which are read back from a fixed template straight to TTS and checked
+against a salted HMAC-SHA256 hash. Three failures lock the call; nothing about the application is said before
+verification, and digits never reach the LLM, transcripts or logs. DTMF must reach LiveKit as RFC 4733
+`telephone-event` from the SIP trunk. This is demo-grade authentication (4 digits). Details:
+[docs/architecture/livekit-integration.md](docs/architecture/livekit-integration.md#phone-callers-keypad-verification-sip--dtmf).
+
+```bash
+CALLER_VERIFY_HMAC_KEY=$(openssl rand -hex 32) python scripts/voice/seed_caller_directory.py --out /srv/saral/caller_directory.json
+```
+
 ## Evaluation setup and results
 
 ### Setup
