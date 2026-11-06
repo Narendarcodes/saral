@@ -16,6 +16,13 @@ Frappe's `voice_assertion` method and forwards the fresh 60-second assertion as 
 therefore uses exactly the same authorization path as text, and the worker holds no borrower cookie. The worker
 never sees or chooses an application on its own.
 
+Phone calls (LiveKit SIP participant): there is no Voice Session row, so the caller ID (`sip.phoneNumber`) is matched
+to a hashed synthetic applicant directory (CALLER_DIRECTORY, CALLER_VERIFY_HMAC_KEY) and the caller must pass keypad
+verification (`verify_caller`, caller_verification.py) before any turn reaches the advisory server. Digits arrive as
+`sip_dtmf_received` room events only, the read-back goes straight to TTS with a masked transcript, and neither the
+chat context nor any log ever holds a digit. An unknown number is told no account details can be shared and offered a
+person. DTMF must be enabled on the SIP trunk; this is demo-grade authentication (4 digits).
+
 Every turn writes one JSON line (VOICE_TURN_LOG) with: end-of-user-speech -> STT done -> graph answer (and the
 graph's LLM TTFT) -> first TTS audio -> agent speaking. It keeps timings, locale, STT engine, audio duration,
 filler and the session id only, never the transcript. The same answer card (decision, citations) is published on
@@ -23,6 +30,7 @@ the data channel (topic "advisor") for the page to render.
 """
 import asyncio
 import json
+import logging
 import os
 import re
 import time
@@ -42,7 +50,8 @@ from loan_advisory.agent.settings import VoiceSettings  # noqa: E402
 from loan_advisory.agent.streaming import speakable  # noqa: E402
 from loan_advisory.agent.voice_log import turn_row  # noqa: E402
 from loan_advisory.state_paths import append_private  # noqa: E402  (P0c private creation)
-from voice_assertion_exchange import Assertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
+from voice_assertion_exchange import Assertions, PhoneAssertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
+import caller_verification as cv  # noqa: E402  (keypad caller verification; no LiveKit imports)
 from gnani_speech import build_stt, build_tts  # noqa: E402  (Gnani Prisma STT + Timbre TTS)
 
 CFG = VoiceSettings.from_env()
@@ -53,6 +62,30 @@ GREETING = {
     "hi": "नमस्ते। मैं आपके लोन फ़ैसले के कारण समझा सकता हूँ, सुधार के उपाय बता सकता हूँ, या नीति के सवालों का जवाब दे सकता हूँ। आप क्या जानना चाहेंगे?",
     "te": "నమస్కారం. మీ లోన్ నిర్ణయానికి కారణాలు వివరించగలను, ఏమి మెరుగుపరచాలో చెప్పగలను, లేదా నియమాల ప్రశ్నలకు జవాబివ్వగలను. మీరు ఏమి తెలుసుకోవాలనుకుంటున్నారు?",
 }
+PHONE_GREETING = "Hello, this is Saral, your loan assistant."
+log = logging.getLogger("saral.voice.worker")
+
+
+class PhoneCall:
+    """What the worker knows about a SIP caller: the matched record (or why there is none) and its verifier."""
+
+    def __init__(self, record: cv.CallerRecord | None, reason: str | None, verifier: cv.KeypadVerifier | None = None):
+        self.record, self.reason, self.verifier = record, reason, verifier
+
+
+def phone_lookup(caller_id: str | None, env=None) -> tuple[cv.CallerRecord | None, bytes | None, str | None]:
+    """(record, key, reason). Fails closed: no key or no directory means nobody can be verified on this call."""
+    env = os.environ if env is None else env
+    key, path = cv.load_key(env), env.get(cv.DIRECTORY_ENV, "")
+    if key is None or not path:
+        return None, None, cv.UNAVAILABLE
+    try:
+        directory = cv.CallerDirectory.load(path, key)
+    except (OSError, ValueError, KeyError):
+        log.warning("caller directory could not be loaded")  # the path and contents stay out of the log
+        return None, None, cv.UNAVAILABLE
+    record = directory.lookup(caller_id)
+    return (record, key, None) if record is not None else (None, None, cv.UNKNOWN_CALLER)
 
 
 class Turn:
@@ -120,13 +153,72 @@ class GraphLLM(llm.LLM):
 
 
 class AdvisorAgent(Agent):
-    def __init__(self, auth: Assertions, locale: str, room: rtc.Room, turn: Turn):
-        super().__init__(instructions="Loan advisory assistant (replies come from the LangGraph advisory graph).")
-        self.auth, self.locale, self.room, self.turn = auth, locale, room, turn
+    def __init__(self, auth, locale: str, room: rtc.Room, turn: Turn, phone: PhoneCall | None = None):
+        super().__init__(instructions="Loan advisory assistant (replies come from the LangGraph advisory graph). "
+                                      "Phone callers must pass verify_caller before any account detail is discussed.")
+        self.auth, self.locale, self.room, self.turn, self.phone = auth, locale, room, turn, phone
         self.conv = f"voice-{auth.session_id}"
         self._http: aiohttp.ClientSession | None = None
+        self._verify_task: asyncio.Task | None = None
+
+    # ------------------------------------------------------------------------------------- phone verification
+    @llm.function_tool
+    async def verify_caller(self) -> str:
+        """Verify a phone caller with their phone KEYPAD before any account or application detail is discussed.
+        The caller picks one factor (1: loan application number, 2: bank account number) and keys its last 4 digits.
+        Never ask the caller to say digits aloud. Returns only the outcome: verified, locked, timeout,
+        unknown_caller, unavailable or not_required; it never returns digits."""
+        return await self.run_verification()
+
+    async def run_verification(self) -> str:
+        if self.phone is None:
+            return cv.NOT_REQUIRED  # browser sessions are authorised by Frappe's Voice Session row
+        if self.phone.verifier is None:
+            await self._say(cv.PROMPT[self.phone.reason or cv.UNAVAILABLE])
+            return self.phone.reason or cv.UNAVAILABLE
+        return await self.phone.verifier.run()
+
+    def start_verification(self) -> None:
+        if self._verify_task is None or self._verify_task.done():
+            self._verify_task = asyncio.ensure_future(self.run_verification())
+            self._verify_task.add_done_callback(lambda t: t.cancelled() or t.exception())
+
+    def _gate_reply(self) -> str | None:
+        """None when this turn may reach the advisory server; otherwise the fixed line to speak instead."""
+        if self.phone is None or getattr(self.auth, "verified", False):
+            return None
+        v = self.phone.verifier
+        if v is None:
+            return cv.PROMPT[self.phone.reason or cv.UNAVAILABLE]
+        if v.locked:
+            return cv.PROMPT["locked"]
+        if v.busy:
+            return ""  # the keypad flow is speaking; say nothing over it
+        self.start_verification()
+        return cv.PROMPT["needs_verification"]
+
+    async def _say(self, text: str) -> None:
+        """Fixed verification prompts: spoken, kept out of the chat context the LLM sees."""
+        await self.session.say(text, add_to_chat_ctx=False, allow_interruptions=True)
+
+    async def _say_private(self, spoken: str, shown: str) -> None:
+        """The digit read-back: `spoken` is synthesized directly (never through llm_node or the chat context); the
+        transcript the room and chat context could show is the masked `shown` text."""
+        tts_engine = self.session.tts
+
+        async def audio():
+            async with tts_engine.synthesize(spoken) as stream:
+                async for ev in stream:
+                    yield ev.frame
+
+        await self.session.say(shown, audio=audio(), add_to_chat_ctx=False, allow_interruptions=False)
 
     async def llm_node(self, chat_ctx: llm.ChatContext, tools, model_settings):
+        gate = self._gate_reply()
+        if gate is not None:  # unverified phone caller: the advisory server is never called, so no fact can leak
+            if gate:
+                yield gate
+            return
         msg = ""
         for item in reversed(chat_ctx.items):
             if getattr(item, "role", None) == "user":
@@ -215,6 +307,9 @@ def prewarm(proc: JobProcess):
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
     participant = await ctx.wait_for_participant()
+    if participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP:
+        await phone_entrypoint(ctx, participant)
+        return
     meta = json.loads(participant.metadata or "{}")
     session_id = meta.get("session_id")
     if not isinstance(session_id, str) or not SESSION_ID.match(session_id):
@@ -256,6 +351,35 @@ async def entrypoint(ctx: JobContext):
     await session.start(agent=agent, room=ctx.room)
     await session.say(GREETING[locale], allow_interruptions=True)
     await asyncio.sleep(0)
+
+
+async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant):
+    """A SIP caller: caller-ID lookup, then keypad verification before any advisory turn. Prompts are English."""
+    record, key, reason = phone_lookup(participant.attributes.get("sip.phoneNumber"))
+    http = aiohttp.ClientSession()
+    phone = PhoneCall(record, reason)
+    exchange = None
+    if record is not None:
+        pa = PhoneAssertions(http, record.applicant_id, record.application_id, ctx.room.name, participant.identity,
+                             frappe_url=CFG.frappe_url, api_key=CFG.frappe_api_key,
+                             api_secret=CFG.frappe_api_secret, timeout_s=CFG.http_timeout_s)
+
+        async def exchange():
+            return await pa.fresh(phone.verifier.factor)
+    gate = cv.VerifiedGate(None, exchange)
+    locale, turn = "en", Turn()
+    stt_engine, tts_engine = build_stt(CFG.speech, locale), build_tts(CFG.speech, locale)
+    session = AgentSession(vad=ctx.proc.userdata["vad"], stt=stt_engine, tts=tts_engine, llm=GraphLLM(),
+                           min_endpointing_delay=CFG.min_endpointing_s)
+    agent = AdvisorAgent(gate, locale, ctx.room, turn, phone=phone)
+    if record is not None:
+        phone.verifier = gate.verifier = cv.KeypadVerifier(record, key, speak=agent._say,
+                                                           speak_private=agent._say_private)
+    # Keypad digits come only from LiveKit SIP DTMF room events, never from the speech path.
+    ctx.room.on("sip_dtmf_received", cv.dtmf_handler(participant.identity, phone.verifier))
+    await session.start(agent=agent, room=ctx.room)
+    await session.say(PHONE_GREETING, allow_interruptions=True)
+    agent.start_verification()
 
 
 if __name__ == "__main__":
