@@ -55,6 +55,7 @@ MAX_SILENCE_NUDGES = 2
 CONFUSION_HANDOVER = 3
 BARGE_WINDOW, BARGE_BRIEF = 3, 2
 LANG_STREAK, LANG_MIN_WORDS = 2, 3
+CHECK_ALLOWANCE = 8                           # words a closing check-in may add on top of max_words
 
 
 @dataclass(frozen=True)
@@ -254,7 +255,7 @@ def plan_user_turn(base: ToneProfile, state: ToneState, sig: Signals, literacy: 
         state.distress = True
         if sig.anger:
             state.anger_hits += 1
-        kind = "frustration" if sig.anger and not sig.distress else "worry"
+        kind = "frustration" if sig.anger else "worry"
         if newly or state.ack_kind == "none":
             state.ack_kind = kind
         if not state.empathy_used and not safety:
@@ -383,11 +384,13 @@ def strip_tags(text: str) -> str:
     return re.sub(r"\s{2,}", " ", _TAG.sub("", text or "")).strip()
 
 
-def render_for_speech(sentences: list[str], tone: ToneProfile, ack_first: bool = False) -> list[str]:
+def render_for_speech(sentences: list[str], tone: ToneProfile, ack_first: bool = False,
+                      tags_used: int = 0) -> list[str]:
     """Each sentence is synthesised on its own. Adds at most MAX_CODE_TAGS tags: `<slow>` on a distress
-    acknowledgement, `<pauses>` between ideas or before the sentence carrying a ₹ amount. Brief turns get none."""
+    acknowledgement, `<pauses>` between ideas or before the sentence carrying a ₹ amount. Brief turns get none.
+    `tags_used` counts tags already spent this turn (for example `<slow>` on a pre-rendered acknowledgement)."""
     out = [strip_tags(s) for s in sentences if strip_tags(s)]
-    budget = 0 if tone.tier == "brief" else MAX_CODE_TAGS
+    budget = 0 if tone.tier == "brief" else max(0, MAX_CODE_TAGS - tags_used)
     if not out or budget == 0:
         return out
     if ack_first and tone.tier == "distress":
@@ -422,8 +425,13 @@ def fit_budget(sentences: list[str], tone: ToneProfile, checks: int = 0) -> tupl
     limit = tone.max_sentences
     for i, s in enumerate(sentences):
         n = word_count(s)
-        is_check = i >= len(sentences) - checks
-        if not kept or (words + n <= tone.max_words and (len(kept) < limit or is_check) and not deferred):
+        if i >= len(sentences) - checks:          # a short check-in rides on top of the budget
+            if words + n <= tone.max_words + CHECK_ALLOWANCE:
+                kept.append(s)
+                words += n
+            else:
+                deferred.append(s)
+        elif not kept or (words + n <= tone.max_words and len(kept) < limit and not deferred):
             kept.append(s)
             words += n
         else:
