@@ -395,7 +395,7 @@ class AdvisoryAgent:
         return allowed
 
     def _style(self, req: AgentRequest):
-        return (P.LITERACY_STYLE.get(req.literacy, P.LITERACY_STYLE["medium"]), P.LANG.get(req.locale, "English"),
+        return (P.LITERACY_STYLE.get(req.literacy, P.LITERACY_STYLE["medium"]), P.answer_language(req),
                 P.VOICE if req.channel == "voice" else "")
 
     # ------------------------------------------------------------------ nodes
@@ -816,7 +816,7 @@ class AdvisoryAgent:
             try:
                 j = self.llm.chat_json("You write one short clarifying question. Output JSON only.",
                                        _prompt("CLARIFY", _CLARIFY_DEFAULT).format(
-                                           lang=P.LANG.get(req.locale, "English"), message=req.message,
+                                           lang=P.answer_language(req), message=req.message,
                                            history=json.dumps(hist, ensure_ascii=False)),
                                        max_tokens=200, tag="clarify", **self._llm_kw(s, self._classify_budget(req)))
                 q = str(j.get("question") or "").strip()

@@ -15,7 +15,7 @@ Telugu. It never decides. Product overview: [README.md](README.md). Design reaso
 - **ZEN decides, the LLM explains.** Do not let the agent compute, change or override a decision, show a cut-off or a
   rule number, or give a borrower an internal reason. Fraud/list hits go to a person, never to an automatic decline.
 - **Copyrighted policy texts stay out of the repo.** The policy index is built under `$LOAN_POLICY_DIR`, outside git.
-- **Phone verification is demo-grade.** Caller ID plus the last 4 digits of one factor is a demonstration, not
+- **Phone verification is demo-grade.** Caller ID plus the last 4 digits of the loan application number is a demonstration, not
   production authentication. Keypad digits must never reach the LLM, transcripts or logs.
 - **Own work only.** This repo holds the owner's build of a former team capstone; do not re-add teammates' modules
   (document OCR, customer segmentation, the functional write-up).

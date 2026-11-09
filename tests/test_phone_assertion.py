@@ -198,8 +198,20 @@ def test_each_turn_gets_a_fresh_assertion_on_the_same_thread(portal):
     assert other_call["thread"] != first["thread"]
 
 
-def test_both_keypad_factors_are_accepted(portal):
-    assert call(portal, verified_factor="bank_account")["assertion"]
+def test_only_the_application_factor_is_accepted_in_call_flow_v2(portal):
+    assert call(portal, verified_factor="application")["assertion"]
+    with pytest.raises(portal.errors.Forbidden):
+        call(portal, verified_factor="bank_account")  # the v1 second factor is gone from the flow
+
+
+def test_first_name_is_returned_only_when_the_customer_has_a_usable_name(portal):
+    assert "first_name" not in call(portal)  # no customer_name on the record
+    for row in portal.frappe.db.tables["Customer"]:
+        if row["name"] == "CUS-TEST-001":
+            row["customer_name"] = "Asha Rao"
+    assert call(portal)["first_name"] == "Asha"
+    assert portal.voice._first_name("1234 Rao") is None and portal.voice._first_name("a@b.c") is None
+    assert portal.voice._first_name("") is None and portal.voice._first_name(None) is None
 
 
 def test_a_seeded_applicant_without_a_portal_account_gets_a_phone_subject_and_defaults(portal):

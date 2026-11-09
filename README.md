@@ -370,15 +370,19 @@ python -m pip install -r apps/voice/requirements.txt
 GNANI_API_KEY=... python scripts/voice/gnani_roundtrip.py --out /tmp/gnani_rt   # one Timbre line + one Prisma transcription
 ```
 
-**Phone callers (SIP) verify on the keypad.** A caller's number is matched to a synthetic applicant; an unknown number
-gets no account details and is offered a person. The caller then picks one factor (1: loan application number, 2: bank
-account number) and keys its last 4 digits, which are read back and checked against a salted HMAC-SHA256 hash.
-Everything before verification is **pre-recorded** Timbre v3.0 / Tarika audio (`apps/voice/prompts/en-IN/`): greeting,
-menu, enter-digits, the read-back stitched from "you entered" + one clip per digit + "press 1 to confirm", mismatch,
-retry, locked, timeout and "verified, connecting you to Saral". The auth phase never calls the LLM or live TTS; a
-missing or stale clip falls back to live TTS of the same fixed line with a warning. Three failures lock the call; nothing about the application is said before
-verification, and digits never reach the LLM, transcripts or logs. DTMF must reach LiveKit as RFC 4733
-`telephone-event` from the SIP trunk. This is demo-grade authentication (4 digits). Details:
+**Phone callers (SIP): language first, then 4 digits.** A caller's number (normalised: +91 / 91 / 0 / bare 10-digit
+forms are one key) is matched to a synthetic applicant whose record names the call language. The caller hears a
+pre-recorded greeting in that language with no name or account data ("Welcome to Saral. To change language, press
+nine."); 9 opens a menu of ten languages, each option said in its own language (1 English, 2 Hindi, 3 Telugu, 4 Tamil,
+5 Kannada, 6 Malayalam, 7 Marathi, 8 Bengali, 9 Gujarati, 0 Punjabi). Then one factor: the last 4 digits of the loan
+application number, checked against a salted HMAC-SHA256 hash, with no read-back ("That didn't match. Please try
+again."). Three mismatches lock the call. Everything before verification is **pre-recorded** Timbre v3.0 / Tarika
+audio in all ten languages (`apps/voice/prompts/<locale>/`), never interruptible; speech before verification is
+ignored apart from one keypad nudge per prompt, and a refusal (unknown number, locked) is said once before the call
+ends. After "Thank you, you're verified." the agent greets the caller by first name and continues in the chosen
+language (Prisma STT "<language>,en-IN", Timbre TTS and the graph's answers). Digits never reach the LLM, transcripts
+or logs. DTMF must reach LiveKit as RFC 4733 `telephone-event` from the SIP trunk. Demo-grade authentication on
+synthetic data only (4 digits). Details:
 [docs/architecture/livekit-integration.md](docs/architecture/livekit-integration.md#phone-callers-keypad-verification-sip--dtmf).
 
 ```bash

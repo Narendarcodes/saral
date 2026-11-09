@@ -17,7 +17,7 @@ import time
 import uuid
 from typing import get_args
 
-from loan_advisory.agent.contracts import LOCALES, AgentRequest, Literacy, Session
+from loan_advisory.agent.contracts import LOCALES, REPLY_LANGUAGES, REPLY_LOCALE, AgentRequest, Literacy, Session
 
 LITERACIES = get_args(Literacy)   # canonical set from the request contract, never a second copy
 MIN_SECRET_LENGTH = 32
@@ -49,11 +49,20 @@ class App:
         _require_strings(body, ("request_id", "conversation_id", "message"))
         literacy = claims.get("literacy")
         locale = claims.get("locale")
+        channel = body.get("channel") if body.get("channel") in ("text", "voice") else "text"
+        # A phone caller's keypad language choice. It never changes whose file is explained (that comes from the
+        # assertion); it only picks the answer language, so it is accepted from the worker for voice turns only.
+        reply_language = body.get("reply_language") if channel == "voice" else None
+        if not isinstance(reply_language, str) or reply_language not in REPLY_LANGUAGES:
+            reply_language = None
+        if reply_language:
+            locale = REPLY_LOCALE.get(reply_language, "en")
         return AgentRequest(request_id=body.get("request_id") or str(uuid.uuid4()),
                            conversation_id=body.get("conversation_id") or claims.get("thread") or claims["application_ref"],
                            message=(body.get("message") or "")[:4000] or "hello",
-                           channel=body.get("channel") if body.get("channel") in ("text", "voice") else "text",
+                           channel=channel,
                            locale=locale if locale in LOCALES else "en",
+                           reply_language=reply_language,
                            literacy=literacy if literacy in LITERACIES else "medium",
                            application_ref=claims["application_ref"])
 

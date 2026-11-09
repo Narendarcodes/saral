@@ -9,6 +9,15 @@ LITERACY_STYLE = {
              "technical terms in everyday language instead of using them. Use at most 3 short points."),
 }
 LANG = {"en": "English", "hi": "Hindi (Devanagari script)", "te": "Telugu (Telugu script)"}
+
+
+def answer_language(req) -> str:
+    """The language the LLM is told to write in: a phone caller's keypad choice (any of the ten Gnani languages) when
+    present, else the session locale."""
+    from loan_advisory.agent.contracts import REPLY_LANGUAGES
+    code = getattr(req, "reply_language", None)
+    return REPLY_LANGUAGES.get(code) or LANG.get(getattr(req, "locale", "en"), "English")
+
 VOICE = ("The answer will be SPOKEN by a voice assistant: no markdown, no bullet symbols, no tables, no emojis, "
          "at most 70 words, natural spoken sentences.")
 

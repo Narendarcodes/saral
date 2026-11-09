@@ -1,6 +1,7 @@
-"""Keypad caller verification (apps/voice/caller_verification.py): menu, 4-digit DTMF collection, masked read-back,
-confirm/retype, salted-HMAC match, lockout after 3 failures, keypress timeouts, unknown caller ID, and the rule that
-keyed digits never reach logs, transcripts or anything returned to the LLM. Pure asyncio; no LiveKit, no network."""
+"""Keypad caller verification, call flow v2 (apps/voice/caller_verification.py): language from the directory record,
+greeting with the press-9 language menu, ONE factor (last 4 of the loan application number), no read-back, salted-HMAC
+match, lockout after 3 failures, keypress timeouts, the nudge at most once per prompt, robust caller-ID normalisation,
+and the rule that keyed digits never reach logs or anything returned to the LLM. Pure asyncio; no LiveKit, no network."""
 import asyncio
 import json
 import logging
@@ -12,45 +13,45 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "voice"))
 import caller_verification as cv  # noqa: E402
+import prompt_texts as pt  # noqa: E402
 
 KEY = b"test-only-hmac-key-0123456789abcdef"
 PHONE = "+910000123456"
-APP4, BANK4 = "4729", "8051"
+APP4 = "4729"
 ENTRY = {"phone": PHONE, "applicant_id": "CUS-TEST-001", "application_id": "APP-TEST-001",
-         "application_last4": APP4, "bank_account_last4": BANK4}
-EXPECTS_KEYS = {cv.PROMPT[k] for k in ("menu", "menu_again", "enter", "retype", "cleared", "confirm_again")}
+         "application_last4": APP4, "language": "te-IN"}
+WAITS = {"greeting", "enter", "no_match", "cleared", cv.LANGUAGE_MENU}
 
 
-def directory():
-    return cv.CallerDirectory.from_seed(KEY, cv.build_seed(KEY, [ENTRY]))
+def directory(entry=ENTRY):
+    return cv.CallerDirectory.from_seed(KEY, cv.build_seed(KEY, [entry]))
 
 
 class Caller:
-    """Fake call: records what the agent says and keys the next scripted presses whenever a prompt waits for input."""
+    """Fake call: records the keys the agent speaks (and in which language), and keys the next scripted presses
+    whenever a prompt waits for input. `None` in the script means "press nothing at this prompt"."""
 
-    def __init__(self, script, nudge_keys=None):
+    def __init__(self, script, entry=ENTRY, nudge_keys=None):
         self.script, self.nudge_keys = list(script), nudge_keys
-        self.spoken, self.shown, self.private_spoken = [], [], []
-        self.v = cv.KeypadVerifier(directory().lookup(PHONE), KEY, speak=self.speak, speak_private=self.speak_private,
-                                   nudge_s=0.05, give_up_s=0.15)
+        self.spoken, self.langs, self.changes = [], [], []
+        self.v = cv.KeypadVerifier(directory(entry).lookup(entry["phone"]), KEY, speak=self.speak,
+                                   on_language=self.changes.append, nudge_s=0.05, give_up_s=0.15, window_s=0.05,
+                                   menu_wait_s=0.05)
 
     def _feed(self):
         if self.script:
-            for k in self.script.pop(0):
+            for k in self.script.pop(0) or "":
                 self.v.press(k)
 
-    async def speak(self, text):
-        self.spoken.append(text); self.shown.append(text)
-        if text in EXPECTS_KEYS:
+    async def speak(self, key):
+        self.spoken.append(key)
+        self.langs.append(self.v.language)
+        if key in WAITS:
             self._feed()
-        elif text == cv.PROMPT["nudge"] and self.nudge_keys:
+        elif key == "nudge" and self.nudge_keys:
             for k in self.nudge_keys:
                 self.v.press(k)
             self.nudge_keys = None
-
-    async def speak_private(self, spoken, shown):
-        self.private_spoken.append(spoken); self.shown.append(shown)
-        self._feed()
 
 
 def run(caller):
@@ -58,13 +59,32 @@ def run(caller):
 
 
 # ----------------------------------------------------------------------------------------------- seed + lookup
-def test_seed_holds_hashes_only():
+def test_seed_holds_hashes_and_language_only():
     seed = cv.build_seed(KEY, [ENTRY])
     blob = json.dumps(seed)
-    for secret in (PHONE, PHONE[1:], "123456", APP4, BANK4):
+    for secret in (PHONE, PHONE[1:], "123456", APP4):
         assert secret not in blob
     rec = seed["records"][0]
-    assert set(rec["factors"]) == {"application", "bank_account"} and len(rec["factors"]["application"]) == 64
+    assert set(rec["factors"]) == {"application"} and len(rec["factors"]["application"]) == 64
+    assert rec["language"] == "te-IN"
+
+
+def test_language_defaults_to_english_and_is_validated():
+    entry = {k: v for k, v in ENTRY.items() if k != "language"}
+    assert directory(entry).lookup(PHONE).language == "en-IN"
+    with pytest.raises(ValueError):
+        cv.build_seed(KEY, [dict(ENTRY, language="fr-FR")])
+    seed = cv.build_seed(KEY, [ENTRY])
+    seed["records"][0]["language"] = "xx"  # a hand-edited directory falls back, never crashes
+    assert cv.CallerDirectory.from_seed(KEY, seed).lookup(PHONE).language == "en-IN"
+
+
+def test_v1_directory_with_bank_factor_still_loads_and_ignores_it():
+    seed = cv.build_seed(KEY, [ENTRY])
+    seed["records"][0]["factors"]["bank_account"] = "ab" * 32
+    del seed["records"][0]["language"]
+    rec = cv.CallerDirectory.from_seed(KEY, seed).lookup(PHONE)
+    assert set(rec.factor_hmacs) == {"application"} and rec.language == "en-IN"
 
 
 def test_known_and_unknown_caller_id():
@@ -75,10 +95,37 @@ def test_known_and_unknown_caller_id():
     assert d.lookup("anonymous") is None
 
 
+@pytest.mark.parametrize("raw", ["+919876543210", "919876543210", "09876543210", "9876543210", "+91 98765-43210",
+                                 "tel:+91-98765-43210", "sip:+919876543210@sip.example.com;user=phone",
+                                 "sip:919876543210@10.0.0.1", "(+91) 98765 43210", "0091 98765 43210"])
+def test_indian_number_forms_normalise_to_one_key(raw):
+    assert cv.normalize_phone(raw) == "+919876543210"
+
+
+def test_other_numbers_keep_their_country_code_and_junk_is_refused():
+    assert cv.normalize_phone("+1 484 295 0295") == "+14842950295"
+    assert cv.normalize_phone("14842950295") == "+14842950295"
+    for bad in ("anonymous", "sip:anonymous@host", "12ab34", "+12", "", None):
+        assert cv.normalize_phone(bad) is None
+
+
+def test_caller_id_attribute_order_and_fallbacks():
+    assert cv.caller_id({"sip.phoneNumber": "9876543210", "sip.from": "+911111111111"}) == "+919876543210"
+    assert cv.caller_id({"sip.phoneNumber": "anonymous", "sip.from": "sip:+919876543210@host"}) == "+919876543210"
+    assert cv.caller_id({"sip.fromUser": "09876543210"}) == "+919876543210"
+    assert cv.caller_id({}, "sip_+919876543210") == "+919876543210"
+    assert cv.caller_id({}, "web-user") is None and cv.caller_id(None) is None
+
+
+def test_mask_phone_keeps_only_the_last_two_digits():
+    assert cv.mask_phone("+919876543210") == "+**********10"
+    assert "98765" not in cv.mask_phone("+919876543210") and cv.mask_phone(None) == "none"
+
+
 def test_hash_match_and_mismatch_and_wrong_key():
     rec = directory().lookup(PHONE)
-    assert rec.matches(KEY, "application", APP4) and rec.matches(KEY, "bank_account", BANK4)
-    assert not rec.matches(KEY, "application", BANK4)  # the other factor's digits do not count
+    assert rec.matches(KEY, "application", APP4)
+    assert not rec.matches(KEY, "bank_account", APP4)  # the v1 second factor no longer exists
     assert not rec.matches(KEY, "application", "0000") and not rec.matches(KEY, "application", "472")
     assert not rec.matches(b"another-key-another-key-1234", "application", APP4)
 
@@ -95,106 +142,166 @@ def test_key_from_env_fails_closed_when_missing_or_short():
 
 
 # ----------------------------------------------------------------------------------------------- the flow
-def test_menu_choice_1_collects_four_digits_and_verifies_application_factor():
-    c = Caller(["1", APP4, "1"])
+def test_greeting_in_directory_language_then_enter_then_verified():
+    c = Caller([None, APP4])
     assert run(c) == cv.VERIFIED and c.v.verified and c.v.factor == "application"
-    assert c.spoken[0] == cv.PROMPT["menu"] and c.spoken[1] == cv.PROMPT["enter"]
-    assert c.spoken[-1] == cv.PROMPT["verified"]
+    assert c.spoken == ["greeting", "enter", "verified"]
+    assert set(c.langs) == {"te-IN"} and c.changes == []
 
 
-def test_menu_choice_2_uses_bank_account_only():
-    c = Caller(["2", BANK4, "1"])
-    assert run(c) == cv.VERIFIED and c.v.factor == "bank_account"
-    c = Caller(["2", APP4, "1", APP4, "1", APP4, "1"])  # application digits under the bank factor never pass
-    assert run(c) == cv.LOCKED
-
-
-def test_invalid_menu_key_reprompts():
-    c = Caller(["9", "1", APP4, "1"])
-    assert run(c) == cv.VERIFIED and cv.PROMPT["menu_again"] in c.spoken
-
-
-def test_readback_is_fixed_template_spoken_but_masked_when_shown():
-    c = Caller(["1", APP4, "1"])
+def test_no_factor_menu_and_no_readback():
+    c = Caller([None, APP4])
     run(c)
-    assert c.private_spoken == ["You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype."]
-    assert "You entered ****. Press 1 to confirm or 2 to retype." in c.shown
-    assert not any(d in s for s in c.shown for d in (APP4, "4, 7, 2, 9"))
+    assert not ({"menu", "menu_again", "you_entered", "confirm", "retype"} & set(c.spoken))
+    assert not hasattr(cv, "readback") and "bank_account" not in cv.FACTORS
 
 
-def test_retype_then_confirm():
-    c = Caller(["1", "1111", "2", APP4, "1"])
-    assert run(c) == cv.VERIFIED and c.v.failures == 0
-    assert cv.PROMPT["retype"] in c.spoken and len(c.private_spoken) == 2
+def test_press_9_opens_the_menu_and_the_choice_carries_on():
+    c = Caller(["9", "4", APP4])  # Tamil
+    assert run(c) == cv.VERIFIED
+    assert c.spoken == ["greeting", cv.LANGUAGE_MENU, "enter", "verified"]
+    assert c.langs[-2:] == ["ta-IN", "ta-IN"] and c.changes == ["ta-IN"] and c.v.language == "ta-IN"
+
+
+@pytest.mark.parametrize("key,code", sorted(pt.LANGUAGE_BY_KEY.items()))
+def test_menu_key_mapping(key, code):
+    c = Caller(["9", key, APP4])
+    assert run(c) == cv.VERIFIED and c.v.language == code
+
+
+def test_menu_mapping_is_the_owner_design():
+    assert pt.LANGUAGE_BY_KEY == {"1": "en-IN", "2": "hi-IN", "3": "te-IN", "4": "ta-IN", "5": "kn-IN",
+                                  "6": "ml-IN", "7": "mr-IN", "8": "bn-IN", "9": "gu-IN", "0": "pa-IN"}
+
+
+def test_menu_invalid_key_replays_once_then_keeps_the_current_language():
+    c = Caller(["9", "*", "#", APP4])
+    assert run(c) == cv.VERIFIED and c.v.language == "te-IN" and c.changes == []
+    assert c.spoken.count(cv.LANGUAGE_MENU) == 2 and c.spoken[3] == "enter"
+
+
+def test_menu_timeout_replays_once_then_continues():
+    c = Caller(["9", None, None, APP4])
+    assert run(c) == cv.VERIFIED and c.spoken.count(cv.LANGUAGE_MENU) == 2 and c.v.language == "te-IN"
+
+
+def test_menu_second_try_can_still_choose():
+    c = Caller(["9", "x", "2", APP4])
+    assert run(c) == cv.VERIFIED and c.v.language == "hi-IN"
+
+
+def test_9_after_the_enter_prompt_is_an_ordinary_digit():
+    entry = dict(ENTRY, application_last4="9123")
+    c = Caller([None, "9123"], entry=entry)
+    assert run(c) == cv.VERIFIED and cv.LANGUAGE_MENU not in c.spoken
+
+
+def test_other_keys_during_the_greeting_are_dropped():
+    c = Caller(["1", APP4])
+    assert run(c) == cv.VERIFIED and cv.LANGUAGE_MENU not in c.spoken
+
+
+def test_mismatch_says_try_again_then_success():
+    c = Caller([None, "0000", APP4])
+    assert run(c) == cv.VERIFIED and c.v.failures == 1
+    assert c.spoken == ["greeting", "enter", "no_match", "verified"]
+    assert pt.TEXT["en-IN"]["no_match"] == "That didn't match. Please try again."
+
+
+def test_lockout_after_three_failures_and_stays_locked_without_replaying():
+    c = Caller([None, "0000", "1111", "2222"])
+    assert run(c) == cv.LOCKED and c.v.locked and c.v.failures == 3 and not c.v.verified
+    assert c.spoken[-1] == "locked" and c.spoken.count("locked") == 1
+    c.script = [APP4]
+    assert run(c) == cv.LOCKED and not c.v.verified and c.spoken.count("locked") == 1  # not spoken again
 
 
 def test_star_clears_and_hash_is_ignored_while_typing():
-    c = Caller(["1", "47*", "#4729", "1"])
-    assert run(c) == cv.VERIFIED and cv.PROMPT["cleared"] in c.spoken
+    c = Caller([None, "47*", "#4729"])
+    assert run(c) == cv.VERIFIED and "cleared" in c.spoken
 
 
-def test_extra_keys_after_four_digits_do_not_answer_the_readback():
-    c = Caller(["1", APP4 + "1", "1"])  # the 5th key is drained before the read-back
-    assert run(c) == cv.VERIFIED
-
-
-def test_mismatch_then_success():
-    c = Caller(["1", "0000", "1", APP4, "1"])
-    assert run(c) == cv.VERIFIED and c.v.failures == 1 and cv.PROMPT["no_match"] in c.spoken
-
-
-def test_lockout_after_three_failures_and_stays_locked_for_the_session():
-    c = Caller(["1", "0000", "1", "1111", "1", "2222", "1"])
-    assert run(c) == cv.LOCKED and c.v.locked and c.v.failures == 3 and not c.v.verified
-    assert c.spoken[-1] == cv.PROMPT["locked"] and "team" in cv.PROMPT["locked"]
-    c.script = ["1", APP4, "1"]  # even the right digits are not collected any more
-    assert run(c) == cv.LOCKED and not c.v.verified
-
-
-def test_no_keypress_nudges_at_8s_and_ends_at_15s():
-    c = Caller([""])
+def test_no_keypress_nudges_once_and_ends_at_15s():
+    c = Caller([None, None])
     assert run(c) == cv.TIMEOUT and not c.v.verified and c.v.failures == 0
-    assert c.spoken == [cv.PROMPT["menu"], cv.PROMPT["nudge"], cv.PROMPT["timeout"]]
+    assert c.spoken == ["greeting", "enter", "nudge", "timeout"]
 
 
 def test_key_after_nudge_continues():
-    c = Caller(["", APP4, "1"], nudge_keys="1")
+    c = Caller([None, None], nudge_keys=APP4)
     assert run(c) == cv.VERIFIED
 
 
+def test_nudge_is_allowed_once_per_prompt():
+    c = Caller([None, None])
+    c.v.step = 5
+    assert c.v.may_nudge() and not c.v.may_nudge() and not c.v.may_nudge()
+    c.v.step = 6
+    assert c.v.may_nudge() and not c.v.may_nudge()
+
+
+def test_greeting_plays_once_across_attempts():
+    c = Caller([None, None])
+    assert run(c) == cv.TIMEOUT
+    c.script = [APP4]
+    assert run(c) == cv.VERIFIED and c.spoken.count("greeting") == 1
+
+
 def test_timer_defaults_match_the_design():
-    assert (cv.NUDGE_S, cv.GIVE_UP_S, cv.MAX_ATTEMPTS, cv.DIGITS) == (8.0, 15.0, 3, 4)
+    assert (cv.NUDGE_S, cv.GIVE_UP_S, cv.MAX_ATTEMPTS, cv.DIGITS, cv.LANGUAGE_KEY) == (8.0, 15.0, 3, 4, "9")
 
 
 def test_presses_outside_an_attempt_are_ignored():
-    c = Caller(["", ""])
+    c = Caller([])
     for k in "14729":
         c.v.press(k)
     assert c.v._keys.empty()
 
 
+def test_unknown_caller_gets_greeting_menu_and_one_refusal_in_the_chosen_language():
+    spoken, langs = [], []
+    script = ["9", "3"]
+
+    async def speak(key):
+        spoken.append(key)
+        langs.append(call.language)
+        if key in WAITS and script:
+            for k in script.pop(0):
+                call.press(k)
+    call = cv.KeypadCall(speak=speak, window_s=0.05, menu_wait_s=0.05)
+    assert asyncio.run(call.run_unverifiable(cv.UNKNOWN_CALLER)) == cv.UNKNOWN_CALLER
+    assert spoken == ["greeting", cv.LANGUAGE_MENU, "unknown_caller"]
+    assert langs[0] == "en-IN" and langs[-1] == "te-IN"
+
+
 # ----------------------------------------------------------------------------------------------- exposure
 def test_digits_never_in_logs(caplog):
     caplog.set_level(logging.DEBUG)
-    for script in (["1", "0000", "1", "1111", "1", "2222", "1"], ["1", APP4, "1"], ["2", BANK4, "2", BANK4, "1"]):
+    for script in ([None, "0000", "1111", "2222"], [None, APP4], ["9", "2", "0000", APP4]):
         run(Caller(script))
     text = caplog.text
     assert "****" in text
-    for d in (APP4, BANK4, "0000", "1111", "2222", "4, 7, 2, 9"):
+    for d in (APP4, "0000", "1111", "2222"):
         assert d not in text
 
 
 def test_outcome_returned_to_the_llm_carries_no_digits():
-    for script in (["1", APP4, "1"], ["1", "0000", "1", "1111", "1", "2222", "1"], [""]):
+    for script in ([None, APP4], [None, "0000", "1111", "2222"], [None, None]):
         out = run(Caller(script))
         assert out in (cv.VERIFIED, cv.LOCKED, cv.TIMEOUT) and not any(ch.isdigit() for ch in out)
 
 
-def test_mask_and_readback_validation():
+def test_mask():
     assert cv.mask("4729") == "****" and cv.mask() == "****"
-    with pytest.raises(ValueError) as e:
-        cv.readback("47a9")
-    assert "47a9" not in str(e.value)
+
+
+def test_pre_verification_lines_carry_no_digits_or_name_slots():
+    for code, lines in pt.TEXT.items():
+        assert set(lines) == set(pt.PROMPT_KEYS), code
+        for key, text in lines.items():
+            assert not any(ch.isdigit() for ch in text), (code, key)  # numbers are written as words
+            assert "{" not in text, (code, key)
+    assert "{name}" in pt.LIVE_GREETING["te-IN"][0] and "{name}" not in pt.LIVE_GREETING["te-IN"][1]
 
 
 # ----------------------------------------------------------------------------------------------- the gate
@@ -205,7 +312,7 @@ def test_gate_refuses_the_agent_server_until_verified():
         calls.append(1)
         return {"assertion": "a"}
 
-    c = Caller(["1", APP4, "1"])
+    c = Caller([None, APP4])
     gate = cv.VerifiedGate(c.v, exchange)
     with pytest.raises(cv.NotVerified):
         asyncio.run(gate.fresh())
@@ -222,13 +329,14 @@ def test_gate_for_unknown_caller_never_opens():
 
 
 # ----------------------------------------------------------------------------------------------- seed script
-def test_seed_script_writes_hashes_only_and_round_trips(tmp_path, monkeypatch, capsys):
+def test_seed_script_writes_hashes_and_languages_and_round_trips(tmp_path, monkeypatch, capsys):
     sys.path.insert(0, str(ROOT / "scripts" / "voice"))
     import seed_caller_directory as sd
     monkeypatch.setenv(cv.KEY_ENV, KEY.decode())
     out = tmp_path / "dir.json"
-    assert sd.main(["--out", str(out)]) == 0
     entries = sd.demo_entries()
+    first = entries[0]["applicant_id"]
+    assert sd.main(["--out", str(out), "--language", f"{first}=pa-IN"]) == 0
     blob, printed = out.read_text(), capsys.readouterr().out
     for e in entries:
         assert e["phone"].startswith("+910000") and e["phone"] not in blob and e["phone"][1:] not in blob
@@ -236,13 +344,17 @@ def test_seed_script_writes_hashes_only_and_round_trips(tmp_path, monkeypatch, c
     d = cv.CallerDirectory.load(out, KEY)
     assert len(d) == len(entries)
     rec = d.lookup(entries[0]["phone"])
-    assert rec.application_id == entries[0]["application_id"]
+    assert rec.application_id == entries[0]["application_id"] and rec.language == "pa-IN"
     assert rec.matches(KEY, "application", entries[0]["application_last4"])
-    assert rec.matches(KEY, "bank_account", entries[0]["bank_account_last4"])
+    assert d.lookup(entries[1]["phone"]).language == sd.DEMO_LANGUAGES[1]
+    assert {e["language"] for e in entries} <= set(pt.LANGUAGES) and len({e["language"] for e in entries}) > 3
 
 
-def test_seed_script_refuses_without_key(tmp_path, monkeypatch):
+def test_seed_script_refuses_without_key_or_with_a_bad_language(tmp_path, monkeypatch):
     sys.path.insert(0, str(ROOT / "scripts" / "voice"))
     import seed_caller_directory as sd
     monkeypatch.delenv(cv.KEY_ENV, raising=False)
     assert sd.main(["--out", str(tmp_path / "x.json")]) == 2 and not (tmp_path / "x.json").exists()
+    monkeypatch.setenv(cv.KEY_ENV, KEY.decode())
+    assert sd.main(["--out", str(tmp_path / "y.json"), "--language", "CUS=fr-FR"]) == 2
+    assert not (tmp_path / "y.json").exists()

@@ -7,6 +7,14 @@ Literacy = Literal["low", "medium", "high"]
 # Canonical borrower vocabulary lives in config/borrower_preferences.json (vendored into the
 # portal app); tests/test_preference_vocabulary.py fails if these two drift from it.
 LOCALES = ("en", "hi", "te")           # answer language; one source of truth for request and token validation
+# Phone call flow v2: the language a SIP caller picked on the keypad (Gnani codes). The graph's fixed templates exist
+# in en / hi / te only; for the other seven the LLM-composed answer is written in the language and templates stay en.
+REPLY_LANGUAGES = {"en-IN": "English", "hi-IN": "Hindi (Devanagari script)", "te-IN": "Telugu (Telugu script)",
+                   "ta-IN": "Tamil (Tamil script)", "kn-IN": "Kannada (Kannada script)",
+                   "ml-IN": "Malayalam (Malayalam script)", "mr-IN": "Marathi (Devanagari script)",
+                   "bn-IN": "Bengali (Bengali script)", "gu-IN": "Gujarati (Gujarati script)",
+                   "pa-IN": "Punjabi (Gurmukhi script)"}
+REPLY_LOCALE = {"en-IN": "en", "hi-IN": "hi", "te-IN": "te"}
 Action = Literal["answer", "clarify", "simulate", "handoff", "refuse"]
 Intent = Literal["explain", "improve", "what_if", "policy", "boundary", "greeting", "other", "status", "human_review",
                  "distress", "clarify"]
@@ -26,6 +34,7 @@ class AgentRequest(BaseModel):
     locale: str = "en"                      # en | hi | te (answer language)
     literacy: Literacy = "medium"           # applicant-chosen loan familiarity
     application_ref: str | None = None      # must be authorized server-side
+    reply_language: str | None = None       # voice (phone) only: one of REPLY_LANGUAGES; the answer's language
 
 
 class Citation(BaseModel):

@@ -181,10 +181,21 @@ def build_stt(cfg: GnaniSpeechSettings, locale: str) -> PrismaSTT:
     return PrismaSTT(model=cfg.stt_model, language=cfg.stt_language_for(locale), fmt=cfg.stt_format)
 
 
+def call_stt_language(language: str) -> str:
+    """Prisma language list for a phone call in `language` (a Gnani code): "<language>,en-IN" so English loan words
+    ("EMI", "CIBIL") are still heard, or "en-IN" alone for English."""
+    return "en-IN" if language in ("en-IN", "", None) else f"{language},en-IN"
+
+
+def build_stt_for_language(cfg: GnaniSpeechSettings, language: str) -> PrismaSTT:
+    """STT for a phone call whose caller chose `language` on the keypad (overrides GNANI_STT_LANGUAGE)."""
+    return PrismaSTT(model=cfg.stt_model, language=call_stt_language(language), fmt=cfg.stt_format)
+
+
 def build_tts(cfg: GnaniSpeechSettings, locale: str) -> TimbreTTS:
     return TimbreTTS(model=cfg.tts_model, voice=cfg.tts_voice, language=cfg.tts_language_for(locale),
                      speed=cfg.tts_speed, sample_rate=cfg.tts_sample_rate, method=cfg.tts_method)
 
 
-__all__ = ["PLUGIN_VERSION", "PrismaSTT", "PrismaSpeechStream", "TimbreOptions", "TimbreTTS", "build_stt", "build_tts",
-           "timbre_payload"]
+__all__ = ["PLUGIN_VERSION", "PrismaSTT", "PrismaSpeechStream", "TimbreOptions", "TimbreTTS", "build_stt",
+           "build_stt_for_language", "build_tts", "call_stt_language", "timbre_payload"]
