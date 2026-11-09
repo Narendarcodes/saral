@@ -21,5 +21,5 @@
 
 `frappe/frappe_docker` (main @ `e08b50c`), guide `docs/02-setup/02-build-setup.md`:
 custom `layered` image with `apps.json` = erpnext `version-16` + lending
-`version-16`, `FRAPPE_BRANCH=version-16`, tag `loanrangers-frappe:16`.
+`version-16`, `FRAPPE_BRANCH=version-16`, tag `saral-frappe:16`.
 `pwd.yml` demo explicitly cannot install custom apps — not used.

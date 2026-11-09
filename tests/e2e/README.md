@@ -31,7 +31,7 @@ Local only: the language model. The runs used Ollama (`qwen3.5:4b`) through the 
 ## Bring-up
 
 1. Disposable site running and seeded — see [frappe-disposable-environment.md](../../docs/development/frappe-disposable-environment.md), sections 2, 4.1 and 5.
-2. `bench --site loanportal.local serve --port 8001` inside `loanrangers-backend-1` (assets are served only by this process).
+2. `bench --site loanportal.local serve --port 8001` inside `saral-backend-1` (assets are served only by this process).
 3. Front door and both host processes (section 4.1 of the same document):
    - nginx `loanportal-e2e-proxy` → `127.0.0.1:8081`
    - runtime → `127.0.0.1:4200`
@@ -89,8 +89,8 @@ Every harness above attaches `write_guard.cjs` before its first navigation, so a
 ```bash
 # container
 bench --site loanportal.local execute loan_advisory_portal.tests.e2e_seed.seed --kwargs '{"tag": "e2e1"}'
-docker cp loanrangers-backend-1:/tmp/loanportal-e2e/e2e1.json <temp>/e2e1.json
-docker exec loanrangers-backend-1 rm -f /tmp/loanportal-e2e/e2e1.json
+docker cp saral-backend-1:/tmp/loanportal-e2e/e2e1.json <temp>/e2e1.json
+docker exec saral-backend-1 rm -f /tmp/loanportal-e2e/e2e1.json
 
 # host
 python tests/e2e/seed_evidence.py --seed <temp>/e2e1.json --trace-dir <temp>/traces

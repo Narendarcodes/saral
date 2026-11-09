@@ -1,7 +1,7 @@
 # Phase 2: Synthetic applicant personas (`personas_v1`)
 
 **Everything here is SYNTHETIC.** No real people are represented. Labels come from the prototype
-policy `synthetic-v1`, whose four thresholds are prototype assumptions and **not** a VaaniLabs or
+policy `synthetic-v1`, whose four thresholds are prototype assumptions and **not** a
 lender policy:
 
 * monthly income ≥ ₹25,000

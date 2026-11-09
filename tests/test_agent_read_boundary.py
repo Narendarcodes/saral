@@ -143,7 +143,7 @@ FULL_APPLICATION_DOC = {
     "modified": "2026-01-02 00:00:00", "modified_by": "Administrator", "docstatus": 1, "idx": 0,
     "applicant": "CUS-TEST-005", "applicant_type": "Customer", "applicant_name": "Synthetic Borrower",
     "applicant_email_address": "borrower@example.invalid", "applicant_phone_number": "9000000000",
-    "zip_code": "500001", "company": "Loan Rangers Test NBFC", "loan_product": "SYN-PERSONAL-001",
+    "zip_code": "500001", "company": "Saral Test NBFC", "loan_product": "SYN-PERSONAL-001",
     "loan_amount": 300000, "repayment_method": "Repay Over Number of Periods", "repayment_periods": 36,
     "repayment_amount": 9000, "rate_of_interest": 14.5, "posting_date": "2026-01-01",
     "is_term_loan": 1, "is_secured_loan": 0, "maximum_loan_amount": 2000000,

@@ -7,7 +7,7 @@ or voice. It explains the recorded reasons for a decision, shows how they relate
 simulations and suggests legitimate next steps. **It explains; it never decides.** Decisions come only from a
 deterministic ZEN rules engine run by the conventional Frappe Lending workflow.
 
-Built for the VaaniLabs.AI capstone (CBIT AI/ML). Repository name is spelled `Load-Advisory-Agent`.
+Built for a CBIT AI/ML capstone. Repository: `Narendarcodes/saral`.
 
 > **Read this first**
 > - **All applicant data is synthetic.** The four underwriting thresholds (income ≥ ₹25,000, FOIR ≤ 0.45, credit score
@@ -83,8 +83,8 @@ python scripts/development/inspect_zen_trace.py  # decision + result + trace dum
 ### 2. Live Frappe Lending (P1/P3)
 
 Start the stack (frappe_docker clone, outside this repo):
-`docker compose --project-name loanrangers -f loanrangers.yml up -d --pull missing`
-(site `p1loan.local` → `http://127.0.0.1:8080`). The droplet variant is `infra/frappe/loanrangers.droplet.yml`
+`docker compose --project-name saral -f saral.yml up -d --pull missing`
+(site `p1loan.local` → `http://127.0.0.1:8080`). The droplet variant is `infra/frappe/saral.droplet.yml`
 (127.0.0.1-only, secrets from env), seeded by `infra/frappe/bootstrap/{create_site,seed}.sh`.
 
 ```bash

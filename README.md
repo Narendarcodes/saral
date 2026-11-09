@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Narendarcodes/Load-Advisory-Agent/actions/workflows/ci.yml"><img src="https://github.com/Narendarcodes/Load-Advisory-Agent/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/Narendarcodes/saral/actions/workflows/ci.yml"><img src="https://github.com/Narendarcodes/saral/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/python-3.14-3776AB?logo=python&logoColor=white" alt="Python 3.14">
   <img src="https://img.shields.io/badge/Frappe-16%20%2B%20Lending-0089FF" alt="Frappe 16 + Lending">
   <img src="https://img.shields.io/badge/data-synthetic%20only-E8743B" alt="Synthetic data only">
@@ -45,8 +45,16 @@ English, Hindi or Telugu, says what the borrower can do next, and answers genera
 model only explains the decision that ZEN already recorded, and policy search (RAG) only supplies general, cited
 background.
 
-Saral began as a CBIT AI/ML team capstone (VaaniLabs.AI). This repository is Golla Narendar's own build and
+Saral began as a CBIT AI/ML team capstone. This repository is Golla Narendar's own build and
 extension of it; teammates' modules (document OCR, customer segmentation, the functional write-up) are not included.
+
+## How it fits
+
+1. **Borrower portal** (Frappe 16 + Lending, `apps/loan_advisory_portal/`) takes the application; the **ZEN rules engine** (`decision_engine/`, `ops/decision_runner.py`) makes and records the decision.
+2. **Agent server** (one LangGraph graph on the standard library, `apps/api/src/loan_advisory/agent/`) explains that recorded decision, with cited policy background from RAG (`rag/`); it accepts only a 60-second assertion signed by Frappe.
+3. **Chat island** (CopilotKit, `apps/web/assistant/`) reaches the agent through the AG-UI runtime (`apps/runtime/`).
+4. **Voice and phone** (`apps/voice/`): a LiveKit Agents worker in front of the same agent and guards. Gnani Prisma v3 speech-to-text, Timbre v3 text-to-speech (voice Tarika) and keypad caller verification for phone calls are on branch `feat/gnani-voice`.
+5. **Synthetic data only** (`synthetic_data/`, `ops/`); phone caller verification (caller ID + last 4 digits) is demo-grade, not production authentication.
 
 > **Read this first**
 > - **All applicant data is synthetic.** No real person, PAN, Aadhaar number, employer or bank account is used.
@@ -60,6 +68,7 @@ extension of it; teammates' modules (document OCR, customer segmentation, the fu
 
 ## Contents
 
+- [How it fits](#how-it-fits)
 - [What Saral does](#what-saral-does)
 - [Run it locally](#run-it-locally)
 - [Deployment options](#deployment-options)
@@ -126,8 +135,8 @@ Test logins (generated at run time, never committed) and one synthetic applicant
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/Narendarcodes/Load-Advisory-Agent.git
-cd Load-Advisory-Agent
+git clone https://github.com/Narendarcodes/saral.git
+cd saral
 python -m venv .venv
 # Windows (PowerShell):  .venv\Scripts\Activate.ps1      Linux / macOS:  source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -179,7 +188,7 @@ Start in this order (ports are the defaults; all bind to 127.0.0.1):
 
 | # | Service | Command | Port |
 |---|---|---|---:|
-| 1 | Frappe Lending + Saral portal (Docker) | `docker compose -f infra/frappe/loanrangers.yml up -d --pull missing` (build the `loanrangers-frappe:16` image first if you have never built it, see [setup.md](docs/development/setup.md)); create the site: `docker exec loanrangers-backend-1 bash -lc 'cd /home/frappe/frappe-bench && bench new-site saral.local --mariadb-user-host-login-scope=% --db-root-password "$MYSQL_ROOT_PASSWORD" --admin-password "$ADMINPW" --install-app erpnext && bench --site saral.local install-app lending'` (about 6 min; pass both variables with `-e`; the root password is the db container's `MYSQL_ROOT_PASSWORD`); then `FRAPPE_SITE=saral.local FRAPPE_BACKEND=loanrangers-backend-1 bash infra/frappe/bootstrap/install_portal_app.sh`. The script copies the app into the backend container only: restart (or copy into) the queue and scheduler containers too. Put `agent_assertion_secret`, `allow_tests` and `allow_demo_users` into `sites/saral.local/site_config.json` by editing the file inside the container (exact command in [setup.md](docs/development/setup.md) §4), not with `bench set-config`, so the secret stays out of `logs/bench.log` (the `new-site` passwords are logged there too: treat that log as sensitive). | 8080 |
+| 1 | Frappe Lending + Saral portal (Docker) | `docker compose -f infra/frappe/saral.yml up -d --pull missing` (build the `saral-frappe:16` image first if you have never built it, see [setup.md](docs/development/setup.md)); create the site: `docker exec saral-backend-1 bash -lc 'cd /home/frappe/frappe-bench && bench new-site saral.local --mariadb-user-host-login-scope=% --db-root-password "$MYSQL_ROOT_PASSWORD" --admin-password "$ADMINPW" --install-app erpnext && bench --site saral.local install-app lending'` (about 6 min; pass both variables with `-e`; the root password is the db container's `MYSQL_ROOT_PASSWORD`); then `FRAPPE_SITE=saral.local FRAPPE_BACKEND=saral-backend-1 bash infra/frappe/bootstrap/install_portal_app.sh`. The script copies the app into the backend container only: restart (or copy into) the queue and scheduler containers too. Put `agent_assertion_secret`, `allow_tests` and `allow_demo_users` into `sites/saral.local/site_config.json` by editing the file inside the container (exact command in [setup.md](docs/development/setup.md) §4), not with `bench set-config`, so the secret stays out of `logs/bench.log` (the `new-site` passwords are logged there too: treat that log as sensitive). | 8080 |
 | 2 | Synthetic applicants (once) | `python -m synthetic_data.saral_kyc_bank --count 200 --seed 20261103 --out ../saral-data/full200` | — |
 | 3 | Seed borrowers and applications (once) | `python -m ops.saral_seed.plan ../saral-data/full200 ../saral-data/plan.json`, then copy `plan.json` and `ops/saral_seed/frappe_seed.py` into the backend container and run it there (exact `docker cp` / `docker exec` lines at the top of `frappe_seed.py`). It writes logins and service keys to a 0600 `creds.json` and a `mapping.json`; copy both out, and put the reader key in `FRAPPE_API_KEY` / `FRAPPE_API_SECRET` | — |
 | 4 | Synthetic KYC + AA bank API | `SARAL_SYNTH_DIR=../saral-data/full200 python -m ops.synthetic_kyc_bank.app --port 8012` | 8012 |

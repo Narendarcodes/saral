@@ -44,7 +44,7 @@ HUMAN = [
     # abstention: answer not in the approved corpus
     q("A-001", "abstain", "What is SBI's minimum CIBIL score for Xpress Credit?", [], [], abstain=True),
     q("A-002", "abstain", "What interest rate will Bajaj Finserv offer me on a personal loan?", [], [], abstain=True),
-    q("A-003", "abstain", "What processing fee does the VaaniLabs partner lender charge?", [], [], abstain=True),
+    q("A-003", "abstain", "What processing fee does the partner lender charge?", [], [], abstain=True),
     q("A-004", "abstain", "Under the DPDP Act can I demand deletion of my loan application data?", [], [], abstain=True, note="registered_not_ingested"),
     q("A-005", "abstain", "What FOIR limit does Axis Bank use for salaried applicants?", [], [], abstain=True),
     q("A-006", "abstain", "Will my loan definitely be approved if I reapply next month?", [], [], abstain=True),

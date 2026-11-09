@@ -11,7 +11,7 @@
 
 ## Image sizes (measured)
 
-loanrangers-frappe:16 **6.67 GB** · mariadb:11.8 467 MB · redis:8.6-alpine 135 MB.
+saral-frappe:16 **6.67 GB** · mariadb:11.8 467 MB · redis:8.6-alpine 135 MB.
 Sum ≈ 7.27 GB = the image delta. (No claim beyond these numbers.)
 
 ## Volume sizes (measured, `docker system df -v`)

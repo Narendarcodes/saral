@@ -15,15 +15,15 @@ loan-advisory-langfuse-postgres-1 Up 6 hours (healthy)
 loan-advisory-langfuse-redis-1 Up 6 hours (healthy)
 loan-advisory-langfuse-clickhouse-1 Up 6 hours (healthy)
 loan-advisory-langfuse-minio-1 Up 6 hours (healthy)
-loanrangers-frontend-1 Up 6 hours
-loanrangers-scheduler-1 Up 6 hours
-loanrangers-queue-long-1 Up 6 hours
-loanrangers-websocket-1 Up 6 hours
-loanrangers-queue-short-1 Up 6 hours
-loanrangers-backend-1 Up 6 hours
-loanrangers-redis-queue-1 Up 6 hours
-loanrangers-redis-cache-1 Up 6 hours
-loanrangers-db-1 Up 6 hours (healthy)
+saral-frontend-1 Up 6 hours
+saral-scheduler-1 Up 6 hours
+saral-queue-long-1 Up 6 hours
+saral-websocket-1 Up 6 hours
+saral-queue-short-1 Up 6 hours
+saral-backend-1 Up 6 hours
+saral-redis-queue-1 Up 6 hours
+saral-redis-cache-1 Up 6 hours
+saral-db-1 Up 6 hours (healthy)
 ## stopped but not removed
 loanportal-acceptance-proxy Exited (0) 23 seconds ago
 

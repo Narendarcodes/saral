@@ -20,14 +20,14 @@ read from the machine during that run.
 | Redis | `redis:8.6-alpine` | two instances: cache and queue |
 | GPU | optional | only for policy RAG; see "Optional: policy retrieval" |
 
-The container image is `loanrangers-frappe:16`: frappe + erpnext + lending, and **deliberately not**
+The container image is `saral-frappe:16`: frappe + erpnext + lending, and **deliberately not**
 `loan_advisory_portal` (see step 4).
 
 ## 0. Clone
 
 ```bash
-git clone https://github.com/Narendarcodes/Load-Advisory-Agent.git
-cd Load-Advisory-Agent
+git clone https://github.com/Narendarcodes/saral.git
+cd saral
 git checkout main
 ```
 
@@ -98,12 +98,12 @@ without it the island dies in the browser with `process is not defined`.
 ## 3. Infrastructure
 
 ```bash
-docker compose -f infra/frappe/loanrangers.yml up -d --pull missing
-docker ps --format '{{.Names}} {{.Status}}' | grep loanrangers
+docker compose -f infra/frappe/saral.yml up -d --pull missing
+docker ps --format '{{.Names}} {{.Status}}' | grep saral
 ```
 
 `--pull missing` is required, not cosmetic: the base file sets `pull_policy: always`, and
-`loanrangers-frappe:16` is a locally built image that no registry has. Without the flag `up` fails on
+`saral-frappe:16` is a locally built image that no registry has. Without the flag `up` fails on
 a pull error even though the image is present.
 
 On a machine that has never built it, build it first (this is the step that needs the internet and
@@ -112,11 +112,11 @@ about 20 minutes):
 ```bash
 git clone https://github.com/frappe/frappe_docker.git
 cd frappe_docker && git checkout e08b50c          # the pin this project was built against
-cp ../Load-Advisory-Agent/infra/frappe/apps.json .
+cp ../saral/infra/frappe/apps.json .
 docker build --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
   --build-arg=FRAPPE_BRANCH=version-16 \
   --secret=id=apps_json,src=apps.json \
-  --tag=loanrangers-frappe:16 --file=images/layered/Containerfile .
+  --tag=saral-frappe:16 --file=images/layered/Containerfile .
 ```
 
 Windows gotcha that will otherwise cost you an hour: `core.autocrlf` bakes CRLF into
@@ -124,14 +124,14 @@ Windows gotcha that will otherwise cost you an hour: `core.autocrlf` bakes CRLF 
 containers then restart-loop with `no such file or directory`. Before building, LF-convert those
 scripts and set `core.autocrlf false` + `core.eol lf` in that clone.
 
-**Volume hazard, read before starting a second stack.** `loanrangers.yml` pins its volumes to fixed
+**Volume hazard, read before starting a second stack.** `saral.yml` pins its volumes to fixed
 names (`frappe_docker_db-data`, `frappe_docker_sites`, `frappe_docker_redis-queue-data`) that do not
-carry the compose project prefix. `docker compose -f loanrangers.yml -p anything up` therefore mounts
+carry the compose project prefix. `docker compose -f saral.yml -p anything up` therefore mounts
 the **running** stack's database and sites, and a second MariaDB starts against the same data
 directory. Use the override whenever you want a second stack:
 
 ```bash
-docker compose -f infra/frappe/loanrangers.yml -f infra/frappe/loanrangers.isolated.yml \
+docker compose -f infra/frappe/saral.yml -f infra/frappe/saral.isolated.yml \
   -p reprostack up -d db redis-cache redis-queue configurator backend --pull missing
 ```
 
@@ -143,7 +143,7 @@ copies it from your checkout and runs `bench install-app` + `migrate` + the `pub
 
 ```bash
 # inside the backend container's bench; create the disposable site
-docker exec loanrangers-backend-1 bash -lc \
+docker exec saral-backend-1 bash -lc \
   'cd /home/frappe/frappe-bench && bench new-site loanportal.local \
    --mariadb-user-host-login-scope=% --db-root-password <root> --admin-password <admin> \
    --install-app erpnext && bench --site loanportal.local install-app lending'
@@ -151,24 +151,24 @@ docker exec loanrangers-backend-1 bash -lc \
 # then the portal, from your checkout
 # (Windows: run this through Git Bash explicitly, "C:\Program Files\Git\bin\bash.exe" -lc "...";
 #  the bash on PATH is often WSL's, which has no docker CLI)
-FRAPPE_SITE=loanportal.local FRAPPE_BACKEND=loanrangers-backend-1 \
+FRAPPE_SITE=loanportal.local FRAPPE_BACKEND=saral-backend-1 \
   bash infra/frappe/bootstrap/install_portal_app.sh
 
 # the script copies the app into the backend container only; restart the background workers
 # so they import the same code (or docker cp the app into them as well)
-docker restart loanrangers-queue-short-1 loanrangers-queue-long-1 loanrangers-scheduler-1
+docker restart saral-queue-short-1 saral-queue-long-1 saral-scheduler-1
 
 # site configuration the app expects, written straight into site_config.json so the secret never
 # appears on a bench command line (and so never in logs/bench.log). AGENT_ASSERTION_SECRET must be
 # exported in your shell first; `-e NAME` passes it by name, not on the command line.
-docker exec -e AGENT_ASSERTION_SECRET loanrangers-backend-1 python3 -c "import json,os; \
+docker exec -e AGENT_ASSERTION_SECRET saral-backend-1 python3 -c "import json,os; \
 p='/home/frappe/frappe-bench/sites/loanportal.local/site_config.json'; c=json.load(open(p)); \
 c.update(allow_tests=1, allow_demo_users=1, agent_assertion_secret=os.environ['AGENT_ASSERTION_SECRET']); \
 json.dump(c, open(p, 'w'), indent=1)"
 ```
 
 Container names depend on your compose project; check them with `docker ps`. Document-upload OCR needs the
-`loanrangers-frappe:16-ocr` image (`infra/frappe/Dockerfile.ocr`, `infra/frappe/loanrangers.ocr.yml`); the base
+`saral-frappe:16-ocr` image (`infra/frappe/Dockerfile.ocr`, `infra/frappe/saral.ocr.yml`); the base
 image has neither Tesseract nor PaddleOCR. The seeded synthetic applicants do not need OCR.
 
 **Anything passed on a `bench` command line is also written to `logs/bench.log`.** The wrapper logs the
@@ -204,11 +204,11 @@ Two levels, both synthetic. Nothing here contains real identity, bureau or bank 
 FRAPPE_SITE=loanportal.local ./infra/frappe/bootstrap/seed.sh
 
 # the two-account browser fixture set the harnesses expect, and its teardown
-docker exec loanrangers-backend-1 bash -lc \
+docker exec saral-backend-1 bash -lc \
   'cd /home/frappe/frappe-bench && bench --site loanportal.local execute \
    loan_advisory_portal.tests.e2e_seed.seed --kwargs "{\"tag\": \"e2e1\"}"'
-docker cp loanrangers-backend-1:/tmp/loanportal-e2e/e2e1.json <a temp dir outside the repo>
-docker exec loanrangers-backend-1 rm -f /tmp/loanportal-e2e/e2e1.json
+docker cp saral-backend-1:/tmp/loanportal-e2e/e2e1.json <a temp dir outside the repo>
+docker exec saral-backend-1 rm -f /tmp/loanportal-e2e/e2e1.json
 ```
 
 The seed JSON holds passwords and API secrets. Keep it out of the repository and delete it when done.
@@ -233,7 +233,7 @@ Four processes. The full walkthrough, ports and shutdown are in
 
 ```bash
 # 1. Frappe dev server (also the only thing that serves /assets for this site)
-docker exec loanrangers-backend-1 bash -lc 'cd /home/frappe/frappe-bench/sites && \
+docker exec saral-backend-1 bash -lc 'cd /home/frappe/frappe-bench/sites && \
   nohup /home/frappe/frappe-bench/env/bin/python -m frappe.utils.bench_helper frappe \
   --site loanportal.local serve --port 8001 > /tmp/loanportal-serve.log 2>&1 &'
 

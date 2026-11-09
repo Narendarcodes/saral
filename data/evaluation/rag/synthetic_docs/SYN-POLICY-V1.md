@@ -1,7 +1,7 @@
 # Prototype personal-loan eligibility policy synthetic-v1 (SYNTHETIC - NOT A REAL LENDER POLICY)
 
 Policy id PERSONAL_LOAN, version synthetic-v1, effective from 8 October 2026. Currency INR.
-This prototype policy was written by the capstone team for testing. It is not a VaaniLabs policy,
+This prototype policy was written by the capstone team for testing. It is not a real lender's policy,
 not an RBI requirement and not the policy of any bank or NBFC.
 
 ## Rule MIN_MONTHLY_INCOME (reason code ERR_INCOME_BELOW_MINIMUM)

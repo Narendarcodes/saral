@@ -197,7 +197,7 @@
    "url": "repo://data/evaluation/rag/synthetic_docs/SYN-POLICY-V1.md",
    "fetch_method": "repo",
    "retrieved_at": "2026-10-14T14:53:15.651136+00:00",
-   "raw_sha256": "bb3841ded0e37d69106a161c183dd356736429411b9d3fc9b884d48d9068e5b4",
+   "raw_sha256": "0df5a0837bb5f99a22ac6b4fb07b937220affe8f3e35366f4bff1dfc09d32737",
    "raw_bytes": 1176,
    "content_hash": "f45b4f20a44f68df0b043b87bec8988deab9bf906c0b820f37aa783e39e631a1",
    "chars": 1169,

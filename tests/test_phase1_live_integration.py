@@ -788,7 +788,7 @@ def _fixture():
     if not tag:
         pytest.skip("set P15_FIXTURE_TAG to the e2e_seed tag holding the synthetic borrower credentials")
     path = os.environ.get("P15_FIXTURE_PATH", f"/tmp/loanportal-e2e/{tag}.json")
-    container = os.environ.get("P15_FRAPPE_CONTAINER", "loanrangers-backend-1")
+    container = os.environ.get("P15_FRAPPE_CONTAINER", "saral-backend-1")
     raw = subprocess.run(["docker", "exec", container, "cat", path],
                          capture_output=True, text=True, check=True).stdout
     return json.loads(raw)

@@ -17,7 +17,7 @@ in [`environment/`](environment/); nothing here re-derives a number that a captu
 
 Fifteen containers were already running and none of this task's ports was occupied:
 
-- the nine permanent Frappe containers (`loanrangers-backend-1`, `-db-1`, `-redis-cache-1`,
+- the nine permanent Frappe containers (`saral-backend-1`, `-db-1`, `-redis-cache-1`,
   `-redis-queue-1`, `-frontend-1`, `-websocket-1`, `-scheduler-1`, `-queue-short-1`, `-queue-long-1`);
 - the six permanent Langfuse containers (`loan-advisory-langfuse-langfuse-web-1` on `127.0.0.1:3000`,
   `-langfuse-worker-1`, `-postgres-1`, `-redis-1`, `-clickhouse-1`, `-minio-1`).
@@ -37,7 +37,7 @@ Four services, each recorded with the identifier needed to stop exactly it later
 
 | Service | Where | Identifier | Purpose |
 | --- | --- | --- | --- |
-| Frappe dev server `:8001` | inside `loanrangers-backend-1` (`bench --site loanportal.local serve --port 8001`) | container pids 8483 (bench) / 8486 (werkzeug) | serves the portal pages the browser harnesses navigate |
+| Frappe dev server `:8001` | inside `saral-backend-1` (`bench --site loanportal.local serve --port 8001`) | container pids 8483 (bench) / 8486 (werkzeug) | serves the portal pages the browser harnesses navigate |
 | Test front door `127.0.0.1:8081` | `loanportal-acceptance-proxy` (nginx:alpine, container id `4bd676ee8025`, config `tests/e2e/nginx.loanportal.conf`) | created with `AutoRemove=false`, i.e. deliberately **without** `--rm` | same-origin proxy in front of the dev server, so the browser runs use the real cookie/CSRF path |
 | CopilotKit runtime `127.0.0.1:4200` | host | pid 36316 (`node apps/runtime/dist/index.js`) | serves the assistant island's `/api/copilotkit` calls |
 | Deterministic AG-UI stub `127.0.0.1:8096` | host | pid 34888 (`node tests/e2e/agui_stub.cjs`, `STUB_APPLICATION=ACC-LOAP-2026-00020`) | the runtime's agent upstream, replacing the live model |
@@ -99,7 +99,7 @@ From [`environment/teardown-verification.txt`](environment/teardown-verification
   `pid, used_gpu_memory [MiB]` header — no compute process, consistent with the RAG agent never
   having been started.
 - **Permanent stack intact and still serving.** All fifteen containers from §1 are still `Up`, the
-  six Langfuse ones still `(healthy)`, and `loanrangers-backend-1` still answers on port 8000.
+  six Langfuse ones still `(healthy)`, and `saral-backend-1` still answers on port 8000.
 - **Nothing removed.** No `docker rm`, no `docker system prune`, no volume or image touched. The
   front door is stopped-but-present so a later run can `docker start` it or inspect its logs.
 
@@ -128,7 +128,7 @@ itself) is kept as reproducible evidence at
 `tests/e2e/` likewise take secrets from environment variables and never echo them.
 
 **One item this task found but did not touch, for the owner to decide on:** inside
-`loanrangers-backend-1`, `/tmp/seed_applications.json` is a root-owned 9,890-byte file dated
+`saral-backend-1`, `/tmp/seed_applications.json` is a root-owned 9,890-byte file dated
 2026-10-19 15:20 — it predates this task and this findings-closure run, and its name suggests it
 carries seeding data. Deleting another run's artefact is not this task's call, so it is left in place
 and flagged here rather than removed or read.
@@ -137,7 +137,7 @@ and flagged here rather than removed or read.
 
 | Item | State |
 | --- | --- |
-| Frappe permanent bench (`loanrangers-*`, 9 containers) | Up, unmodified by this task's start/stop cycle |
+| Frappe permanent bench (`saral-*`, 9 containers) | Up, unmodified by this task's start/stop cycle |
 | Langfuse stack (6 containers) | Up and healthy |
 | Port `:8000` (permanent frontend) | serving, verified with the site Host header |
 | Port `:3000` (Langfuse UI) | serving, untouched |

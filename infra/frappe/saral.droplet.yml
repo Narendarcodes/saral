@@ -1,7 +1,7 @@
-# Droplet variant of loanrangers.yml (UTF-8, LF). Same images/services as P1.
+# Droplet variant of saral.yml (UTF-8, LF). Same images/services as P1.
 # Differences: frontend bound to 127.0.0.1 only, DB root password from env (never committed),
 # custom image never pulled, separate project/volume names (loanhx_*).
-# Usage: DB_ROOT_PASSWORD=... docker compose -f loanrangers.droplet.yml up -d
+# Usage: DB_ROOT_PASSWORD=... docker compose -f saral.droplet.yml up -d
 name: loanhx
 services:
   backend:
@@ -13,7 +13,7 @@ services:
       GUNICORN_THREADS: '4'
       GUNICORN_TIMEOUT: '120'
       GUNICORN_WORKERS: '2'
-    image: loanrangers-frappe:16
+    image: saral-frappe:16
     networks:
       default: null
     platform: linux/amd64
@@ -52,7 +52,7 @@ services:
       REDIS_CACHE: redis-cache:6379
       REDIS_QUEUE: redis-queue:6379
       SOCKETIO_PORT: '9000'
-    image: loanrangers-frappe:16
+    image: saral-frappe:16
     networks:
       default: null
     platform: linux/amd64
@@ -110,7 +110,7 @@ services:
       UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
       UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
       UPSTREAM_REAL_IP_RECURSIVE: 'off'
-    image: loanrangers-frappe:16
+    image: saral-frappe:16
     networks:
       default: null
     platform: linux/amd64
@@ -137,7 +137,7 @@ services:
       configurator:
         condition: service_completed_successfully
         required: true
-    image: loanrangers-frappe:16
+    image: saral-frappe:16
     networks:
       default: null
     platform: linux/amd64
@@ -158,7 +158,7 @@ services:
       configurator:
         condition: service_completed_successfully
         required: true
-    image: loanrangers-frappe:16
+    image: saral-frappe:16
     networks:
       default: null
     platform: linux/amd64
@@ -192,7 +192,7 @@ services:
       configurator:
         condition: service_completed_successfully
         required: true
-    image: loanrangers-frappe:16
+    image: saral-frappe:16
     networks:
       default: null
     platform: linux/amd64
@@ -211,7 +211,7 @@ services:
       configurator:
         condition: service_completed_successfully
         required: true
-    image: loanrangers-frappe:16
+    image: saral-frappe:16
     networks:
       default: null
     platform: linux/amd64

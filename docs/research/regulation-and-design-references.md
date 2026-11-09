@@ -88,4 +88,4 @@ adaptation; it does not test protected attributes.
 The project compares against: (a) the conventional workflow with no LLM (ZEN decision + deterministic templates, see
 `docs/architecture/conventional-workflow.md`), which every agent answer must stay faithful to; (b) retrieval variants (dense vs hybrid vs reranked) with a paired bootstrap in the RAG evaluation reports
 (`docs/policy/rag_eval_bajaj_v1_report.json`, `docs/policy/bajaj_reference_lender.md`). A static FAQ or human-support baseline was not run. What counts as a "meaningful improvement" for a deployment
-is a product decision — UNKNOWN, VaaniLabs must answer.
+is a product decision — UNKNOWN, the deployer must answer.

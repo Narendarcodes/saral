@@ -2,7 +2,7 @@
   "policy_id": "PERSONAL_LOAN",
   "policy_version": "synthetic-v1",
   "synthetic": true,
-  "warning": "SYNTHETIC TEST POLICY ONLY. Not a VaaniLabs policy. Never use for real lending decisions.",
+  "warning": "SYNTHETIC TEST POLICY ONLY. Not a real lender's policy. Never use for real lending decisions.",
   "currency": "INR",
   "rules": [
     {

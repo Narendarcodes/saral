@@ -1,5 +1,5 @@
 #!/bin/bash
-# Idempotent site creation for the droplet stack (loanrangers.droplet.yml).
+# Idempotent site creation for the droplet stack (saral.droplet.yml).
 # Needs DB_ROOT_PASSWORD and FRAPPE_ADMIN_PASSWORD in env (kept in an untracked secrets.env).
 set -euo pipefail
 SITE=${FRAPPE_SITE:-loanhx.local}

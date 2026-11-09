@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "loan_advisory_portal"
-authors = [{ name = "Loan Rangers", email = "dev@example.invalid" }]
+authors = [{ name = "Golla Narendar", email = "dev@example.invalid" }]
 readme = "README.md"
 dynamic = ["version"]
 description = "Borrower portal for the Loan Advisory Agent, built on Frappe and Frappe Lending"

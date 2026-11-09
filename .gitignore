@@ -33,3 +33,7 @@ data/synthetic/bureau/*.json
 work/ocr_real/
 **/ocr_real/raw/
 **/ocr_real/images/
+
+# Local credentials and lookup files (never commit)
+creds.json
+mapping.json

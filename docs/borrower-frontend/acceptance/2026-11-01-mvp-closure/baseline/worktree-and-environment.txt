@@ -43,15 +43,15 @@ report**. Nothing foreign was found, so no isolation warning applies to this tas
 Fifteen permanent containers `Up 7 hours`, all preserved by this task:
 
 ```
-loanrangers-backend-1  -db-1 (healthy)  -redis-cache-1  -redis-queue-1  -frontend-1 (:8080)
-loanrangers-websocket-1  -scheduler-1  -queue-short-1  -queue-long-1
+saral-backend-1  -db-1 (healthy)  -redis-cache-1  -redis-queue-1  -frontend-1 (:8080)
+saral-websocket-1  -scheduler-1  -queue-short-1  -queue-long-1
 loan-advisory-langfuse-langfuse-web-1 (:3000, healthy)  -langfuse-worker-1  -postgres-1
 loan-advisory-langfuse-redis-1  -clickhouse-1  -minio-1   (all healthy)
 ```
 
 Stopped-but-present, from the previous task and deliberately not removed:
 `4bd676ee8025 loanportal-acceptance-proxy Exited (0)`. Pre-existing unrelated exited containers
-(`cop-*`, `postiz-*`, `whatsapp_*`, `insta_kg_neo4j`, `loanrangers-configurator-1`) untouched.
+(`cop-*`, `postiz-*`, `whatsapp_*`, `insta_kg_neo4j`, `saral-configurator-1`) untouched.
 Docker volumes: 24+ local volumes listed; none created, removed or pruned by this task.
 
 Host listeners at the harness ports: **none** on 8001 / 8081 / 4200 / 8095 / 8096. Only
@@ -63,13 +63,13 @@ process**. The RAG agent is not running and will not be started for this task.
 
 ## 4. Target site and database identity (§2.7 and the pre-write checks)
 
-From `bench --site loanportal.local show-config` inside `loanrangers-backend-1` (secrets redacted):
+From `bench --site loanportal.local show-config` inside `saral-backend-1` (secrets redacted):
 
 | Key | Value |
 | --- | --- |
 | site | `loanportal.local` — the disposable test site |
 | `db_name` | `_21ddc3370f18f30e` |
-| `db_type` | `mariadb`, host `db` (`loanrangers-db-1`) |
+| `db_type` | `mariadb`, host `db` (`saral-db-1`) |
 | `allow_tests` | **`True`** |
 | `installed_apps` | `["frappe", "erpnext", "lending", "loan_advisory_portal"]` |
 | `enable_demo_fixtures` | `1` |

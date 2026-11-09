@@ -2,21 +2,21 @@
 
 How to run, seed, test and reset the **isolated** site the migration is developed against. This is an operator document for `loanportal.local` only.
 
-> **Never point these steps at `p1loan.local`.** The shared site is served by the compose stack on `:8080` (`infra/frappe/loanrangers.yml:97`) and is owned by someone else. No migrate, install, fixture, seed, test or restore may run against it. `loanportal.local` exists only inside the backend container and is disposable by design.
+> **Never point these steps at `p1loan.local`.** The shared site is served by the compose stack on `:8080` (`infra/frappe/saral.yml:97`) and is owned by someone else. No migrate, install, fixture, seed, test or restore may run against it. `loanportal.local` exists only inside the backend container and is disposable by design.
 
 ## 1. Stack facts (verified 2026-10-30)
 
 | Item | Value |
 | --- | --- |
-| Compose project | `loan-advisory` (containers `loanrangers-*`), `infra/frappe/loanrangers.yml` |
-| Frappe image | `loanrangers-frappe:16` |
-| Backend container | `loanrangers-backend-1` (no published ports) |
+| Compose project | `loan-advisory` (containers `saral-*`), `infra/frappe/saral.yml` |
+| Frappe image | `saral-frappe:16` |
+| Backend container | `saral-backend-1` (no published ports) |
 | Bench root | `/home/frappe/frappe-bench` |
 | Bench CLI | 5.31.0 |
 | Frappe / ERPNext / Lending | 16.51.0 / 16.50.0 / 16.6.1 |
 | Portal app | `loan_advisory_portal` 0.1.0 |
 | Python (bench env) | 3.14.8 at `/home/frappe/frappe-bench/env/bin/python` |
-| Database | `mariadb:11.8`, container `loanrangers-db-1` |
+| Database | `mariadb:11.8`, container `saral-db-1` |
 | Redis | cache + queue, `redis:8.6-alpine` |
 | Shared site (do not touch) | `p1loan.local` via nginx `:8080` |
 | Disposable site | `loanportal.local`, dev server on `127.0.0.1:8001` **inside** the container |
@@ -41,7 +41,7 @@ Variable **names** only; values are never recorded here. Frappe-side, agent-side
 | Agent data + tracing | `FRAPPE_URL`, `FRAPPE_API_KEY`, `FRAPPE_API_SECRET`, `FRAPPE_LOAN_COMPANY`, `FRAPPE_LOAN_PRODUCT`, `AGENT_STORE` (`mock` or live), `AGENT_TRACING`, `AGENT_TRACE_PROJECT`, `AGENT_TRACE_CONTENT` (off by default), `LANGFUSE_HOST` / `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_TRACING_ENVIRONMENT`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | evidence sink, RAG store, Langfuse/OTel |
 | Agent budgets (`AGENT_*_S`, `AGENT_CITATION_MODE`, `AGENT_FAST_CLASSIFY`, `AGENT_STREAM_BRIDGE`) | see `agent/settings.py` | per-turn deadlines and citation behaviour |
 | Voice worker (`apps/voice`) | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `FRAPPE_URL`, `FRAPPE_API_KEY`, `FRAPPE_API_SECRET` (an `Agent Integration` API key), `AGENT_HTTP`, `GNANI_API_KEY`, `GNANI_*`, `VOICE_WORKER_PORT`, `VOICE_HTTP_TIMEOUT_S`, `VOICE_STREAM`, `VOICE_*_S`, `VOICE_TURN_LOG` | LiveKit join, per-turn assertion exchange with Frappe, advisory HTTP calls, Gnani Prisma STT / Timbre TTS |
-| Reverse proxy (`infra/frappe/loanrangers.yml`) | `FRAPPE_SITE_NAME_HEADER`, `NGINX_LISTEN_PORT`, `BACKEND`, `SOCKETIO`, `CLIENT_MAX_BODY_SIZE`, `PROXY_READ_TIMEOUT`, `UPSTREAM_REAL_IP_ADDRESS`, `UPSTREAM_REAL_IP_HEADER`, `UPSTREAM_REAL_IP_RECURSIVE` | site header, upstreams, upload ceiling, real-IP trust |
+| Reverse proxy (`infra/frappe/saral.yml`) | `FRAPPE_SITE_NAME_HEADER`, `NGINX_LISTEN_PORT`, `BACKEND`, `SOCKETIO`, `CLIENT_MAX_BODY_SIZE`, `PROXY_READ_TIMEOUT`, `UPSTREAM_REAL_IP_ADDRESS`, `UPSTREAM_REAL_IP_HEADER`, `UPSTREAM_REAL_IP_RECURSIVE` | site header, upstreams, upload ceiling, real-IP trust |
 
 Production topology (proposed, same-origin required):
 
@@ -63,7 +63,7 @@ No `.env.example` was added: every secret already has a documented owner (site c
 Already done for `loanportal.local`; recorded so it can be rebuilt.
 
 ```bash
-# inside loanrangers-backend-1
+# inside saral-backend-1
 cd /home/frappe/frappe-bench
 bench new-site loanportal.local --db-root-password <root> --admin-password <admin> --no-mariadb-socket
 bench --site loanportal.local install-app erpnext
@@ -91,7 +91,7 @@ The worktree lives on the host; the container mounts only `sites/`. Copy the app
 ```bash
 # host
 docker cp apps/loan_advisory_portal/loan_advisory_portal/. \
-  loanrangers-backend-1:/home/frappe/frappe-bench/apps/loan_advisory_portal/loan_advisory_portal/
+  saral-backend-1:/home/frappe/frappe-bench/apps/loan_advisory_portal/loan_advisory_portal/
 
 # container
 cd /home/frappe/frappe-bench
@@ -106,10 +106,10 @@ The assistant island is already in that tree after a build: `docker cp` also cop
 ```bash
 cd apps/web/assistant && npm run build
 # container copy is root-owned, so delete it as root
-docker exec -u root loanrangers-backend-1 rm -rf \
+docker exec -u root saral-backend-1 rm -rf \
   /home/frappe/frappe-bench/apps/loan_advisory_portal/loan_advisory_portal/public/js/assistant
 docker cp apps/loan_advisory_portal/loan_advisory_portal/public/js/assistant \
-  loanrangers-backend-1:/home/frappe/frappe-bench/apps/loan_advisory_portal/loan_advisory_portal/public/js/assistant
+  saral-backend-1:/home/frappe/frappe-bench/apps/loan_advisory_portal/loan_advisory_portal/public/js/assistant
 ```
 
 Old hashed chunks are not deleted by `docker cp`; remove the directory first or the container keeps stale files.
@@ -117,7 +117,7 @@ Old hashed chunks are not deleted by `docker cp`; remove the directory first or 
 ## 4. Run the development server
 
 ```bash
-docker exec loanrangers-backend-1 bash -lc '
+docker exec saral-backend-1 bash -lc '
   cd /home/frappe/frappe-bench/sites &&
   nohup /home/frappe/frappe-bench/env/bin/python -m frappe.utils.bench_helper \
     frappe --site loanportal.local serve --port 8001 > /tmp/loanportal-serve.log 2>&1 &'
@@ -179,7 +179,7 @@ Browser-harness fixtures are repo code (`tests/e2e/`); earlier one-off `/tmp` sc
 ```bash
 # container
 bench --site loanportal.local execute loan_advisory_portal.tests.e2e_seed.seed --kwargs '{"tag": "e2e1"}'
-docker cp loanrangers-backend-1:/tmp/loanportal-e2e/e2e1.json <host temp>   # then delete it in the container
+docker cp saral-backend-1:/tmp/loanportal-e2e/e2e1.json <host temp>   # then delete it in the container
 
 # host
 python tests/e2e/seed_evidence.py --seed <host temp>/e2e1.json --trace-dir <temp>/traces

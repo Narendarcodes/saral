@@ -14,7 +14,6 @@
 <div class="page-head page-head--art">
 	<div>
 		<h1>Ask about your decision</h1>
-		<p>Pick the application you want to talk about. Saral answers about one application at a time.</p>
 	</div>
 	<div class="page-head__actions">
 		<a class="btn btn--ghost" href="/borrower">Back to applications</a>
@@ -59,6 +58,12 @@
 			<h1>Ask about this decision</h1>
 			<a class="small workspace__help" href="/borrower/help#assistant">How the assistant works</a>
 		</div>
+		{% if call_saral %}
+		<p class="callsaral">
+			<a class="callsaral__link" href="tel:{{ call_saral.tel }}">Call Saral {{ call_saral.display }}</a>
+			<span class="small muted">Press 1 for your application or 2 for your bank account, then its last 4 digits.</span>
+		</p>
+		{% endif %}
 		<section class="appstrip" aria-label="This application">
 			<dl class="appstrip__facts">
 				<div><dt>Application</dt><dd>{{ application.name }}</dd></div>

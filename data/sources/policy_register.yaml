@@ -344,7 +344,7 @@ documents:
   source_type: lender_web_page
 - document_id: SYN-POLICY-V1
   title: Prototype personal-loan eligibility policy synthetic-v1 (SYNTHETIC)
-  publisher: Loan Rangers capstone team
+  publisher: Saral synthetic policy (Golla Narendar)
   authority: synthetic
   source_url: repo://data/evaluation/rag/synthetic_docs/SYN-POLICY-V1.md
   document_type: synthetic_policy
@@ -365,7 +365,7 @@ documents:
   source_type: synthetic
 - document_id: SYN-INJECT-001
   title: Adversarial test page with embedded prompt injection (SYNTHETIC)
-  publisher: Loan Rangers capstone team
+  publisher: Saral synthetic policy (Golla Narendar)
   authority: untrusted_test
   source_url: repo://data/evaluation/rag/synthetic_docs/SYN-INJECT-001.md
   document_type: adversarial_test

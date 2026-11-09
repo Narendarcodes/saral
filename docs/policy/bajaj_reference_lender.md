@@ -39,7 +39,7 @@ Labels: **verified** (measured, or seen in the source on 2026-10-14), **proposed
 
 
 > **Bajaj Finance Ltd is a public reference lender, not a partner.** There is no relationship with Bajaj Finance,
-> VaaniLabs or anyone else. We use Bajaj's *public* personal-loan documents to build, evaluate and test the policy
+> anyone else. We use Bajaj's *public* personal-loan documents to build, evaluate and test the policy
 > RAG. Every Bajaj source in the register carries `lender_relationship: "public reference lender, not a partner"`,
 > and answers that cite one must say so. Public pages do not reveal Bajaj's internal underwriting scorecard. Nothing
 > here describes how Bajaj actually decides an application, and the ZEN decision engine still runs the team's

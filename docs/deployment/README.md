@@ -20,15 +20,15 @@ never `*`. The agent is reachable only from the runtime and the voice worker.
 
 ## Services
 
-`infra/frappe/loanrangers.yml` (single machine) and `infra/frappe/loanrangers.droplet.yml` ( hardened
+`infra/frappe/saral.yml` (single machine) and `infra/frappe/saral.droplet.yml` ( hardened
 variant: frontend bound to `127.0.0.1` only, DB root password from an untracked `secrets.env`, separate
 `loanhx_*` volumes). Services: `db`, `redis-cache`, `redis-queue`, `configurator`, `backend`,
 `websocket`, `scheduler`, `queue-short`, `queue-long`, `frontend`.
 
 | Concern | Setting |
 | --- | --- |
-| Persistent volumes | `db-data`, `sites`, `redis-queue-data`. **Pinned to `frappe_docker_*` names**, so a second stack without `loanrangers.isolated.yml` mounts the same data. Read that warning before starting a second stack |
-| Image | `loanrangers-frappe:16`, local build; `pull_policy: always` therefore needs `--pull missing` |
+| Persistent volumes | `db-data`, `sites`, `redis-queue-data`. **Pinned to `frappe_docker_*` names**, so a second stack without `saral.isolated.yml` mounts the same data. Read that warning before starting a second stack |
+| Image | `saral-frappe:16`, local build; `pull_policy: always` therefore needs `--pull missing` |
 | Health | MariaDB healthcheck (`start_period: 5s`, 5 retries) is tight for a cold data directory; a first `up` may fail and succeed on retry |
 | Upload ceiling | `client_max_body_size 50m`; the app enforces 10 MB and 12 documents per application |
 | Timeouts | `PROXY_READ_TIMEOUT: 120`, `GUNICORN_TIMEOUT: 120`, `GUNICORN_WORKERS: 2`, `GUNICORN_THREADS: 4` |
@@ -39,7 +39,7 @@ variant: frontend bound to `127.0.0.1` only, DB root password from an untracked 
 ## Steps
 
 1. Build the image ([setup.md](../development/setup.md) step 3) or pull a registry copy you publish yourself.
-2. `docker compose -f infra/frappe/loanrangers.yml up -d --pull missing`
+2. `docker compose -f infra/frappe/saral.yml up -d --pull missing`
 3. Create the site: `infra/frappe/bootstrap/create_site.sh` — it now installs erpnext, lending **and**
    the portal via `install_portal_app.sh`.
 4. Set site config: `agent_assertion_secret` (32+, matching the agent), LiveKit keys only if voice is
