@@ -7,7 +7,7 @@ or voice. It explains the recorded reasons for a decision, shows how they relate
 simulations and suggests legitimate next steps. **It explains; it never decides.** Decisions come only from a
 deterministic ZEN rules engine run by the conventional Frappe Lending workflow.
 
-Built for the VaaniLabs.AI capstone (CBIT AI/ML). Repository name is spelled `Load-Advisory-Agent`.
+Built for the VaaniLabs.AI capstone (CBIT AI/ML). Repository: `Narendarcodes/saral`.
 
 > **Read this first**
 > - **All applicant data is synthetic.** The four underwriting thresholds (income ≥ ₹25,000, FOIR ≤ 0.45, credit score
