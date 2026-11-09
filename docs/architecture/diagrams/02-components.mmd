@@ -51,8 +51,8 @@ flowchart TB
     subgraph Voice["Voice (apps/voice, infra/voice/up.sh)"]
         lk["LiveKit server :7880"]
         wk["agent_worker.py<br/>LiveKit Agents 1.8 · Silero VAD"]
-        stt["STT :8791<br/>IndicConformer-600M (hi/te, CPU)<br/>Whisper large-v3-turbo (en)"]
-        tts["TTS :8793 SNAC sidecar<br/>svara-tts-v1 on vLLM :8792"]
+        stt["Gnani Prisma v3.0 STT<br/>streaming WebSocket (en/hi/te, codemix)"]
+        tts["Gnani Timbre v3.0 TTS<br/>SSE, voice Tarika"]
     end
 
     web --> ep

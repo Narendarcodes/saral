@@ -1,0 +1,39 @@
+{
+  "_comment": "Saral tone engine live-signal lexicon (research/tone-segmentation-v3.md §4.1). Phrases are matched case-insensitively on the final STT transcript: Latin phrases at word boundaries, Devanagari/Telugu phrases as substrings. Hindi and Telugu lines need one native-speaker review before a live demo (v3 Q10). Synthetic prototype only.",
+  "version": 1,
+  "confusion": [
+    "i don't understand", "i dont understand", "didn't understand", "didnt understand", "what do you mean",
+    "say that again", "say it again", "pardon", "come again", "not clear",
+    "samajh nahi aaya", "samajh nahin aaya", "samjha nahi", "samjhi nahi", "kya matlab", "phir se boliye",
+    "phir se bolo", "dobara batao", "dobara boliye",
+    "समझ नहीं आया", "समझ नहीं आयी", "क्या मतलब", "फिर से बोलिए", "दोबारा बताओ",
+    "artham kaledu", "ardham kaledu", "ardham kaaledu", "artham avvaledu", "ardham avvaledu", "malli cheppandi",
+    "అర్థం కాలేదు", "అర్థం అవ్వలేదు", "మళ్ళీ చెప్పండి", "మళ్లీ చెప్పండి"
+  ],
+  "understood": [
+    "got it", "understood", "i understand", "makes sense", "okay understood",
+    "samajh gaya", "samajh gayi", "samajh gaye", "samajh aa gaya", "समझ गया", "समझ गई", "समझ आ गया",
+    "ardhamaindi", "arthamaindi", "artham ayyindi", "అర్థమైంది", "సరే"
+  ],
+  "anger": [
+    "nonsense", "useless", "cheating", "ridiculous", "rubbish", "pathetic", "how dare", "heartless",
+    "bakwas", "bekaar", "bekar", "dhokha", "pagal bana rahe", "बकवास", "बेकार", "धोखा",
+    "mosam", "pichi", "chetta service", "మోసం", "పిచ్చి"
+  ],
+  "distress_extra": [
+    "bahut tension", "kya karun", "kya karoon", "ghar chala jayega", "बहुत टेंशन", "क्या करूँ", "क्या करूं",
+    "chala kashtam", "ela bratakali", "em cheyalo teliyatledu", "ఏం చేయాలో తెలియట్లేదు", "చాలా కష్టం",
+    "i'll lose my house", "i will lose my house", "i don't know what to do", "i dont know what to do"
+  ],
+  "self_harm": [
+    "suicide", "suicidal", "kill myself", "end my life", "end it all", "don't want to live", "dont want to live",
+    "want to die", "khudkushi", "aatmahatya", "atmahatya", "jaan de dunga", "jaan de dungi", "mar jaunga",
+    "mar jaungi", "आत्महत्या", "ख़ुदकुशी", "खुदकुशी", "जान दे दूँगा", "मर जाऊँगा",
+    "atmahatya chesukunta", "chachipothanu", "ఆత్మహత్య", "చచ్చిపోతాను", "చనిపోవాలని"
+  ],
+  "language_request": {
+    "en": ["in english", "speak english", "english mein", "english me", "english lo", "ఇంగ్లీష్ లో", "अंग्रेज़ी में", "अंग्रेजी में"],
+    "hi": ["in hindi", "speak hindi", "hindi mein", "hindi me", "hindi lo", "हिंदी में", "హిందీ లో"],
+    "te": ["in telugu", "speak telugu", "telugu mein", "telugu me", "telugu lo", "telugulo", "తెలుగు లో", "తెలుగులో", "तेलुगु में"]
+  }
+}

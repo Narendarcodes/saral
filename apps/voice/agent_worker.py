@@ -1,13 +1,13 @@
 """LiveKit Agents voice worker that drives the SAME LangGraph advisory graph as the text chat.
 
-    LIVEKIT_URL=ws://127.0.0.1:7880 LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=... \
-    AGENT_HTTP=http://127.0.0.1:8095 STT_HTTP=http://127.0.0.1:8791 TTS_HTTP=http://127.0.0.1:8793 \
-        python agent_worker.py start
+    LIVEKIT_URL=ws://127.0.0.1:7880 LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=... GNANI_API_KEY=... \
+    AGENT_HTTP=http://127.0.0.1:8095 python agent_worker.py start
 
-Pipeline (self-hosted, no cloud services):
-  browser mic -> LiveKit (self-hosted server) -> Silero VAD -> STT sidecar (Hyperion asr-http: IndicConformer for
-  te/hi, Whisper large-v3-turbo for en) -> llm_node = POST /api/chat on the advisory server (LangGraph graph:
-  authorization, ZEN evidence, what-if, policy RAG, guards) -> svara-tts-v1 streaming sidecar -> LiveKit -> browser.
+Pipeline (speech is Gnani only; see gnani_speech.py and the GNANI_* settings):
+  browser mic -> LiveKit -> Silero VAD (turn detection, barge-in) + Gnani Prisma v3.0 streaming STT (WebSocket)
+  -> llm_node = POST /api/chat on the advisory server (LangGraph graph: authorization, ZEN evidence, what-if,
+  policy RAG, guards; its LLM is configured there, not here) -> Gnani Timbre v3.0 TTS (voice Tarika by default)
+  -> LiveKit -> browser.
 
 Authorization: Frappe mints the LiveKit token and writes the `Voice Session` row before the browser joins, so
 the row is the authorisation. Participant metadata carries `{session_id, user, customer, application}` and no
@@ -16,6 +16,23 @@ Frappe's `voice_assertion` method and forwards the fresh 60-second assertion as 
 therefore uses exactly the same authorization path as text, and the worker holds no borrower cookie. The worker
 never sees or chooses an application on its own.
 
+Phone calls (LiveKit SIP participant): there is no Voice Session row, so the caller ID (`sip.phoneNumber`) is matched
+to a hashed synthetic applicant directory (CALLER_DIRECTORY, CALLER_VERIFY_HMAC_KEY) and the caller must pass keypad
+verification (`verify_caller`, caller_verification.py) before any turn reaches the advisory server. Digits arrive as
+`sip_dtmf_received` room events only, and neither the chat context nor any log ever holds a digit.
+Everything the caller hears before verification succeeds is PRE-RECORDED (auth_prompts.py, apps/voice/prompts/<locale>/,
+rendered once by scripts/voice/render_auth_prompts.py with Timbre v3.0 / Tarika): greeting, menu, enter-digits, the
+read-back stitched from "you entered" + one clip per digit + "press 1 to confirm", mismatch / retry / locked / timeout
+lines and "verified, connecting you to Saral". The auth phase never calls the advisory graph (its LLM) or live TTS; a
+missing or stale clip falls back to live TTS of the same fixed text with a warning. After verification the same
+session continues as the normal dynamic agent.
+
+Tone (tone_wiring.py -> tone_hook.py) starts only after verification (phone: keypad verified; browser: the Voice
+Session row): per turn it sets the Timbre speed (0.90-1.05), adds closed-set acknowledgement / hand-over lines and
+speaks only the whole graph sentences that fit the tier's word budget (the rest are deferred; the page still gets the
+full answer card). Decision prefetch from ZEN is not wired yet (UnwiredDecisionPort). An unknown number is told no account details can be shared and offered a
+person. DTMF must be enabled on the SIP trunk; this is demo-grade authentication (4 digits).
+
 Every turn writes one JSON line (VOICE_TURN_LOG) with: end-of-user-speech -> STT done -> graph answer (and the
 graph's LLM TTFT) -> first TTS audio -> agent speaking. It keeps timings, locale, STT engine, audio duration,
 filler and the session id only, never the transcript. The same answer card (decision, citations) is published on
@@ -23,6 +40,7 @@ the data channel (topic "advisor") for the page to render.
 """
 import asyncio
 import json
+import logging
 import os
 import re
 import time
@@ -32,9 +50,7 @@ import sys
 
 import aiohttp
 from livekit import rtc
-from livekit.agents import (DEFAULT_API_CONNECT_OPTIONS, Agent, AgentSession, APIConnectOptions, JobContext,
-                            JobProcess, WorkerOptions, cli, llm, stt, tts, utils)
-from livekit.agents.types import NOT_GIVEN, NotGivenOr
+from livekit.agents import Agent, AgentSession, JobContext, JobProcess, WorkerOptions, cli, llm
 from livekit.plugins import silero
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "api", "src"))
@@ -44,16 +60,45 @@ from loan_advisory.agent.settings import VoiceSettings  # noqa: E402
 from loan_advisory.agent.streaming import speakable  # noqa: E402
 from loan_advisory.agent.voice_log import turn_row  # noqa: E402
 from loan_advisory.state_paths import append_private  # noqa: E402  (P0c private creation)
-from voice_assertion_exchange import Assertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
+from voice_assertion_exchange import Assertions, PhoneAssertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
+import caller_verification as cv  # noqa: E402  (keypad caller verification; no LiveKit imports)
+import auth_prompts as ap  # noqa: E402  (pre-recorded auth-phase clips; no LiveKit imports)
+from tone_wiring import ToneSession, make_hook  # noqa: E402  (tone engine, used only after verification)
+from gnani_speech import build_stt, build_tts  # noqa: E402  (Gnani Prisma STT + Timbre TTS)
 
 CFG = VoiceSettings.from_env()
-AGENT_HTTP, STT_HTTP, TTS_HTTP, TURN_LOG = CFG.agent_http, CFG.stt_http, CFG.tts_http, CFG.turn_log
+AGENT_HTTP, TURN_LOG = CFG.agent_http, CFG.turn_log
 SESSION_ID = re.compile(r"^[0-9a-f]{32}$")
 GREETING = {
     "en": "Hello. I can explain your loan decision, suggest what to work on, or answer policy questions. What would you like to know?",
     "hi": "नमस्ते। मैं आपके लोन फ़ैसले के कारण समझा सकता हूँ, सुधार के उपाय बता सकता हूँ, या नीति के सवालों का जवाब दे सकता हूँ। आप क्या जानना चाहेंगे?",
     "te": "నమస్కారం. మీ లోన్ నిర్ణయానికి కారణాలు వివరించగలను, ఏమి మెరుగుపరచాలో చెప్పగలను, లేదా నియమాల ప్రశ్నలకు జవాబివ్వగలను. మీరు ఏమి తెలుసుకోవాలనుకుంటున్నారు?",
 }
+PHONE_GREETING = cv.PROMPT["greeting"]
+FRAME_MS = 20
+log = logging.getLogger("saral.voice.worker")
+
+
+class PhoneCall:
+    """What the worker knows about a SIP caller: the matched record (or why there is none) and its verifier."""
+
+    def __init__(self, record: cv.CallerRecord | None, reason: str | None, verifier: cv.KeypadVerifier | None = None):
+        self.record, self.reason, self.verifier = record, reason, verifier
+
+
+def phone_lookup(caller_id: str | None, env=None) -> tuple[cv.CallerRecord | None, bytes | None, str | None]:
+    """(record, key, reason). Fails closed: no key or no directory means nobody can be verified on this call."""
+    env = os.environ if env is None else env
+    key, path = cv.load_key(env), env.get(cv.DIRECTORY_ENV, "")
+    if key is None or not path:
+        return None, None, cv.UNAVAILABLE
+    try:
+        directory = cv.CallerDirectory.load(path, key)
+    except (OSError, ValueError, KeyError):
+        log.warning("caller directory could not be loaded")  # the path and contents stay out of the log
+        return None, None, cv.UNAVAILABLE
+    record = directory.lookup(caller_id)
+    return (record, key, None) if record is not None else (None, None, cv.UNKNOWN_CALLER)
 
 
 class Turn:
@@ -109,76 +154,6 @@ class Turn:
         self.reset()
 
 
-class SidecarSTT(stt.STT):
-    """Non-streaming STT over the Hyperion asr-http sidecar; the session wraps it with Silero VAD."""
-
-    def __init__(self, language: str, turn: Turn):
-        super().__init__(capabilities=stt.STTCapabilities(streaming=False, interim_results=False))
-        self.language, self.turn = language, turn
-        self._http: aiohttp.ClientSession | None = None
-
-    @property
-    def model(self) -> str:
-        return "indicconformer-600m" if self.language in ("te", "hi") else "whisper-large-v3-turbo"
-
-    @property
-    def provider(self) -> str:
-        return "hyperion-asr-http"
-
-    async def _recognize_impl(self, buffer, *, language: NotGivenOr[str] = NOT_GIVEN,
-                              conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS) -> stt.SpeechEvent:
-        import base64
-        self.turn.mark("user_stopped")  # VAD end-of-speech handed the buffer to us
-        frame = rtc.combine_audio_frames(buffer)
-        wav = frame.to_wav_bytes()
-        self._http = self._http or aiohttp.ClientSession()
-        t0 = time.perf_counter()
-        async with self._http.post(f"{STT_HTTP}/v1/transcribe", json={"language": self.language, "audio_b64": base64.b64encode(wav).decode(),
-                                                                       "normalize": "none"}, timeout=aiohttp.ClientTimeout(total=30)) as r:
-            j = await r.json()
-        self.turn.mark("stt_done")
-        self.turn.info.update(stt_ms=round((time.perf_counter() - t0) * 1000, 1), stt_engine=j.get("engine"),
-                              user_audio_s=round(frame.duration, 2))
-        return stt.SpeechEvent(type=stt.SpeechEventType.FINAL_TRANSCRIPT,
-                               alternatives=[stt.SpeechData(language=self.language, text=j.get("text", ""))])
-
-
-class SvaraTTS(tts.TTS):
-    def __init__(self, language: str, turn: Turn, gender: str = CFG.tts_gender):
-        super().__init__(capabilities=tts.TTSCapabilities(streaming=False), sample_rate=24000, num_channels=1)
-        self.language, self.turn, self.gender = language, turn, gender
-        self._http: aiohttp.ClientSession | None = None
-
-    @property
-    def model(self) -> str:
-        return "kenpath/svara-tts-v1"
-
-    @property
-    def provider(self) -> str:
-        return "self-hosted-vllm"
-
-    def synthesize(self, text: str, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS) -> tts.ChunkedStream:
-        return _SvaraStream(tts=self, input_text=text, conn_options=conn_options)
-
-
-class _SvaraStream(tts.ChunkedStream):
-    async def _run(self, output_emitter: tts.AudioEmitter) -> None:
-        t: SvaraTTS = self._tts  # type: ignore[assignment]
-        t._http = t._http or aiohttp.ClientSession()
-        output_emitter.initialize(request_id=utils.shortuuid(), sample_rate=24000, num_channels=1, mime_type="audio/pcm")
-        t0 = time.perf_counter()
-        first = True
-        async with t._http.post(f"{TTS_HTTP}/v1/tts", json={"text": self.input_text, "language": t.language, "gender": t.gender},
-                                timeout=aiohttp.ClientTimeout(total=90)) as r:
-            async for chunk in r.content.iter_chunked(4800):
-                if first:
-                    t.turn.mark("tts_first_audio")
-                    t.turn.info.setdefault("tts_ttfa_ms", round((time.perf_counter() - t0) * 1000, 1))
-                    first = False
-                output_emitter.push(chunk)
-        output_emitter.flush()
-
-
 class GraphLLM(llm.LLM):
     """Placeholder so AgentSession runs the pipeline; generation happens in AdvisorAgent.llm_node (the graph)."""
 
@@ -191,18 +166,139 @@ class GraphLLM(llm.LLM):
 
 
 class AdvisorAgent(Agent):
-    def __init__(self, auth: Assertions, locale: str, room: rtc.Room, turn: Turn):
-        super().__init__(instructions="Loan advisory assistant (replies come from the LangGraph advisory graph).")
-        self.auth, self.locale, self.room, self.turn = auth, locale, room, turn
+    def __init__(self, auth, locale: str, room: rtc.Room, turn: Turn, phone: PhoneCall | None = None,
+                 prompts: ap.PromptStore | None = None, tone: ToneSession | None = None):
+        super().__init__(instructions="Loan advisory assistant (replies come from the LangGraph advisory graph). "
+                                      "Phone callers must pass verify_caller before any account detail is discussed.")
+        self.auth, self.locale, self.room, self.turn, self.phone = auth, locale, room, turn, phone
         self.conv = f"voice-{auth.session_id}"
         self._http: aiohttp.ClientSession | None = None
+        self._verify_task: asyncio.Task | None = None
+        self.prompts = prompts or ap.PromptStore(locale=locale)
+        self._gate_pending = False
+        self.tone = tone or ToneSession(make_hook(locale))
+
+    # ------------------------------------------------------------------------------------- phone verification
+    @llm.function_tool
+    async def verify_caller(self) -> str:
+        """Verify a phone caller with their phone KEYPAD before any account or application detail is discussed.
+        The caller picks one factor (1: loan application number, 2: bank account number) and keys its last 4 digits.
+        Never ask the caller to say digits aloud. Returns only the outcome: verified, locked, timeout,
+        unknown_caller, unavailable or not_required; it never returns digits."""
+        return await self.run_verification()
+
+    async def run_verification(self) -> str:
+        if self.phone is None:
+            return cv.NOT_REQUIRED  # browser sessions are authorised by Frappe's Voice Session row
+        if self.phone.verifier is None:
+            await self._say(cv.PROMPT[self.phone.reason or cv.UNAVAILABLE])
+            return self.phone.reason or cv.UNAVAILABLE
+        result = await self.phone.verifier.run()
+        if result == cv.VERIFIED:
+            await self.on_verified()
+        return result
+
+    async def on_verified(self, speak: bool = True) -> None:
+        """Hand-over from the pre-recorded auth phase to the dynamic agent: start the tone engine (never before).
+        `speak=False` (browser calls, which open with their own greeting) starts tone without its opening lines."""
+        try:
+            lines = await self.tone.activate()
+        except Exception:  # tone is an enhancement; the verified call goes on without it
+            log.warning("tone engine could not start; continuing with the neutral tone")
+            return
+        for line in lines if speak else []:
+            await self.session.say(line, add_to_chat_ctx=False, allow_interruptions=True)
+
+    def start_verification(self) -> None:
+        if self._verify_task is None or self._verify_task.done():
+            self._verify_task = asyncio.ensure_future(self.run_verification())
+            self._verify_task.add_done_callback(lambda t: t.cancelled() or t.exception())
+
+    def _gate_reply(self) -> str | None:
+        """None when this turn may reach the advisory server; otherwise the fixed line to speak instead."""
+        if self.phone is None or getattr(self.auth, "verified", False):
+            return None
+        v = self.phone.verifier
+        if v is None:
+            return cv.PROMPT[self.phone.reason or cv.UNAVAILABLE]
+        if v.locked:
+            return cv.PROMPT["locked"]
+        if v.busy:
+            return ""  # the keypad flow is speaking; say nothing over it
+        self.start_verification()
+        return cv.PROMPT["needs_verification"]
+
+    def _auth_phase(self) -> bool:
+        return self.phone is not None and not getattr(self.auth, "verified", False)
+
+    async def _prompt_frames(self, parts: list[ap.Part]):
+        """LiveKit frames for a planned prompt: clip and silence PCM in 20 ms frames; a `tts` part (missing clip) is
+        synthesized live. Every frame leaves at the first frame's rate, because the session's resampler is chosen once
+        per utterance."""
+        rate, resampler, resampler_in = None, None, None
+        for part in parts:
+            if part.kind == "tts":
+                async with self.session.tts.synthesize(part.text) as stream:
+                    frames = [ev.frame async for ev in stream]
+            else:
+                n = part.sample_rate * FRAME_MS // 1000
+                step = n * ap.SAMPLE_WIDTH
+                frames = []
+                for i in range(0, len(part.pcm), step):
+                    chunk = part.pcm[i:i + step]
+                    frames.append(rtc.AudioFrame(chunk, part.sample_rate, 1, len(chunk) // ap.SAMPLE_WIDTH))
+            for frame in frames:
+                fr = getattr(frame, "sample_rate", None)
+                if rate is None:
+                    rate = fr
+                if fr is None or rate is None or fr == rate:
+                    yield frame
+                    continue
+                if resampler is None or resampler_in != fr:
+                    resampler, resampler_in = rtc.AudioResampler(input_rate=fr, output_rate=rate, num_channels=1), fr
+                for out in resampler.push(frame):
+                    yield out
+            if resampler is not None:
+                for out in resampler.flush():
+                    yield out
+                resampler = None
+
+    async def _say(self, text: str) -> None:
+        """Fixed verification prompts: played from their pre-recorded clip (live TTS of the same text only when the
+        clip is missing), kept out of the chat context."""
+        await self.session.say(text, audio=self._prompt_frames(self.prompts.plan(text)), add_to_chat_ctx=False,
+                               allow_interruptions=True)
+
+    async def _say_private(self, spoken: str, shown: str) -> None:
+        """The digit read-back, stitched from clips ("you entered", one clip per digit, "press 1 to confirm"); the
+        whole `spoken` line goes to live TTS only when a clip is missing. Never through llm_node or the chat context;
+        the transcript the room and chat context could show is the masked `shown` text."""
+        await self.session.say(shown, audio=self._prompt_frames(self.prompts.plan_readback(spoken)),
+                               add_to_chat_ctx=False, allow_interruptions=False)
 
     async def llm_node(self, chat_ctx: llm.ChatContext, tools, model_settings):
+        gate = self._gate_reply()
+        if gate is not None:  # unverified phone caller: the advisory server is never called, so no fact can leak
+            if gate:
+                self._gate_pending = True  # tts_node plays this fixed line from its clip
+                yield gate
+            return
         msg = ""
         for item in reversed(chat_ctx.items):
             if getattr(item, "role", None) == "user":
                 msg = item.text_content or ""
                 break
+        plan = self.tone.plan_turn(msg)  # None before verification / for an inactive tone engine
+        speed = self.tone.speed(plan)
+        set_speed = getattr(self.session.tts, "set_speed", None)
+        if speed is not None and callable(set_speed):
+            set_speed(speed)
+        budget = self.tone.budget(plan)
+        speak_answer = self.tone.speak_answer(plan)
+        if plan is not None:
+            self.turn.info.update(tone_tier=plan.tone.tier, tone_speed=speed, tone_fired=list(plan.fired))
+        for line in self.tone.lead_lines(plan):
+            yield line
         self.turn.mark("graph_start")
         self.turn.info["locale"] = self.locale
         self.turn.info["session_id"] = self.auth.session_id
@@ -241,9 +337,15 @@ class AdvisorAgent(Agent):
             n += 1
             if text == CFG.filler.get(self.locale):
                 self.turn.info["filler"] = True
+            elif not speak_answer or (budget is not None and not budget.admit(text)):
+                continue  # deferred by the tone budget (whole sentences only; the page still gets the answer card)
             else:
                 self.turn.mark("first_sentence")
             yield text
+        for line in self.tone.closing_lines(plan):
+            yield line
+        if budget is not None:
+            self.turn.info["tone_deferred"] = budget.deferred
         self.turn.mark("graph_done")
         resp = final or {"answer": "", "intent": "other", "error": "no final response"}
         self._report(resp, msg, n)
@@ -270,9 +372,33 @@ class AdvisorAgent(Agent):
         async for sentence in text:
             if not sentence.strip():
                 continue
+            if self._gate_pending or self._auth_phase():  # auth phase: fixed lines are clips, never live synthesis
+                self._gate_pending = False
+                async for frame in self._prompt_frames(self.prompts.plan(sentence)):
+                    yield frame
+                continue
+            t0 = time.perf_counter()
             async with tts_engine.synthesize(sentence) as stream:
                 async for ev in stream:
+                    if "tts_first_audio" not in self.turn.t:
+                        self.turn.mark("tts_first_audio")
+                        self.turn.info.setdefault("tts_ttfa_ms", round((time.perf_counter() - t0) * 1000, 1))
                     yield ev.frame
+
+
+def wire_tone_events(session: AgentSession, agent: AdvisorAgent) -> None:
+    """Barge-in feeds the tone engine (a no-op until the call is verified)."""
+
+    @session.on("user_state_changed")
+    def _barge(ev):
+        if getattr(ev, "new_state", None) == "speaking" and getattr(session, "agent_state", None) == "speaking":
+            agent.tone.on_barge_in()
+
+
+def _end_tone(agent: AdvisorAgent):
+    async def _end(*_a):
+        agent.tone.end()  # wipes the call cache
+    return _end
 
 
 def prewarm(proc: JobProcess):
@@ -282,6 +408,9 @@ def prewarm(proc: JobProcess):
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
     participant = await ctx.wait_for_participant()
+    if participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP:
+        await phone_entrypoint(ctx, participant)
+        return
     meta = json.loads(participant.metadata or "{}")
     session_id = meta.get("session_id")
     if not isinstance(session_id, str) or not SESSION_ID.match(session_id):
@@ -294,8 +423,17 @@ async def entrypoint(ctx: JobContext):
     first = await auth.fresh()  # fail fast: an unverified session never hears a greeting
     locale = first.get("locale") if first.get("locale") in ("en", "hi", "te") else "en"
     turn = Turn()
-    session = AgentSession(vad=ctx.proc.userdata["vad"], stt=SidecarSTT(locale, turn), tts=SvaraTTS(locale, turn), llm=GraphLLM(),
+    stt_engine, tts_engine = build_stt(CFG.speech, locale), build_tts(CFG.speech, locale)
+    session = AgentSession(vad=ctx.proc.userdata["vad"], stt=stt_engine, tts=tts_engine, llm=GraphLLM(),
                            min_endpointing_delay=CFG.min_endpointing_s)
+
+    @session.on("user_input_transcribed")
+    def _t(ev):
+        if getattr(ev, "is_final", False):  # timings and engine only; the words never enter the turn info
+            turn.mark("stt_done")
+            turn.info.update(stt_engine=f"gnani/{stt_engine.model}")
+            if "user_stopped" in turn.t:
+                turn.info["stt_ms"] = round((turn.t["stt_done"] - turn.t["user_stopped"]) * 1000, 1)
 
     @session.on("user_state_changed")
     def _u(ev):
@@ -304,16 +442,59 @@ async def entrypoint(ctx: JobContext):
         elif getattr(ev, "new_state", None) == "listening":
             turn.mark("user_stopped")
 
+    agent = AdvisorAgent(auth, locale, ctx.room, turn)
+
     @session.on("agent_state_changed")
     def _a(ev):
         if getattr(ev, "new_state", None) == "speaking":
             turn.mark("agent_speaking")
             turn.flush()
+        elif getattr(ev, "old_state", None) == "speaking":
+            agent.tone.on_agent_turn_end()
 
-    agent = AdvisorAgent(auth, locale, ctx.room, turn)
+    wire_tone_events(session, agent)
+    ctx.add_shutdown_callback(_end_tone(agent))
     await session.start(agent=agent, room=ctx.room)
+    await agent.on_verified(speak=False)  # the Voice Session row authorised this call (auth.fresh() above)
     await session.say(GREETING[locale], allow_interruptions=True)
     await asyncio.sleep(0)
+
+
+async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant):
+    """A SIP caller: caller-ID lookup, then keypad verification before any advisory turn. Prompts are English."""
+    record, key, reason = phone_lookup(participant.attributes.get("sip.phoneNumber"))
+    http = aiohttp.ClientSession()
+    phone = PhoneCall(record, reason)
+    exchange = None
+    if record is not None:
+        pa = PhoneAssertions(http, record.applicant_id, record.application_id, ctx.room.name, participant.identity,
+                             frappe_url=CFG.frappe_url, api_key=CFG.frappe_api_key,
+                             api_secret=CFG.frappe_api_secret, timeout_s=CFG.http_timeout_s)
+
+        async def exchange():
+            return await pa.fresh(phone.verifier.factor)
+    gate = cv.VerifiedGate(None, exchange)
+    locale, turn = "en", Turn()
+    stt_engine, tts_engine = build_stt(CFG.speech, locale), build_tts(CFG.speech, locale)
+    session = AgentSession(vad=ctx.proc.userdata["vad"], stt=stt_engine, tts=tts_engine, llm=GraphLLM(),
+                           min_endpointing_delay=CFG.min_endpointing_s)
+    agent = AdvisorAgent(gate, locale, ctx.room, turn, phone=phone)
+    if record is not None:
+        phone.verifier = gate.verifier = cv.KeypadVerifier(record, key, speak=agent._say,
+                                                           speak_private=agent._say_private)
+    # Keypad digits come only from LiveKit SIP DTMF room events, never from the speech path.
+    ctx.room.on("sip_dtmf_received", cv.dtmf_handler(participant.identity, phone.verifier))
+
+    @session.on("agent_state_changed")
+    def _a(ev):
+        if getattr(ev, "old_state", None) == "speaking":
+            agent.tone.on_agent_turn_end()
+
+    wire_tone_events(session, agent)
+    ctx.add_shutdown_callback(_end_tone(agent))
+    await session.start(agent=agent, room=ctx.room)
+    await agent._say(PHONE_GREETING)  # pre-recorded, like every line before verification
+    agent.start_verification()
 
 
 if __name__ == "__main__":

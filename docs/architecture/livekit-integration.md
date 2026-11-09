@@ -72,6 +72,79 @@ LiveKit room ── participant metadata {session_id, user, customer, applicatio
 
 There is no local fallback: without the Frappe credential the worker raises before greeting.
 
+## Phone callers: keypad verification (SIP + DTMF)
+
+A phone call joins the room as a LiveKit SIP participant, so there is no `Voice Session` row and no browser login.
+The worker (`apps/voice/agent_worker.py`, `phone_entrypoint`) takes the phone path instead
+(`apps/voice/caller_verification.py`):
+
+1. **Caller ID.** The SIP from-number (participant attribute `sip.phoneNumber`) is looked up, by its HMAC, in a
+   directory of synthetic applicants (`CALLER_DIRECTORY`). An unknown or hidden number is told that no account details
+   can be shared on this call and is offered a person. With no key or directory, nobody can be verified (fails closed).
+2. **`verify_caller` (keypad only).** "Press 1 for your loan application, or 2 for your bank account." then "Enter the
+   last 4 digits." Only the factor the caller chose is checked. Keys come from the
+   room event `sip_dtmf_received` (`rtc.SipDTMF`: `digit`, `code`, `participant`; only the caller's own presses count),
+   never from speech, and `GetDtmfTask` (which also accepts spoken digits through the LLM) is not used.
+3. **Read-back.** "You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype." is stitched from pre-recorded clips
+   (`you_entered`, `digit_4`, `digit_7`, `digit_2`, `digit_9`, `confirm`, 120 ms apart) and played with
+   `session.say(masked_text, audio=...)`, so the room transcript shows `You entered ****.` and nothing is added to
+   the chat context. `*` clears the entry; `#` is ignored.
+4. **Check.** HMAC-SHA256(`CALLER_VERIFY_HMAC_KEY`, salt|factor|last4), compared in constant time; the directory
+   holds hashes only (`scripts/voice/seed_caller_directory.py`). Three confirmed mismatches lock verification for
+   the rest of the call and offer a person. No keypress for 8 s plays a nudge; 15 s ends the attempt (saying
+   "verify" starts again).
+5. **Gate.** Until the caller is verified, `llm_node` never calls the advisory server (`VerifiedGate.fresh()` raises),
+   so no application fact can be spoken. The LLM side only ever sees an outcome word (`verified`, `locked`,
+   `timeout`, `unknown_caller`, `unavailable`); digits are never logged (`****`).
+
+**Pre-recorded auth phase.** Every line a phone caller hears before verification succeeds (greeting, menu, enter,
+read-back, cleared / retype / confirm-again, nudge, mismatch, locked, timeout, unknown caller, unavailable,
+needs-verification, and "Thank you, you're verified. Connecting you to Saral.") is a clip rendered once with Timbre
+v3.0, voice Tarika, 16 kHz mono, and committed under `apps/voice/prompts/<locale>/` with a `manifest.json` (text,
+sha256 of the text, duration). `apps/voice/auth_prompts.py` looks a clip up by its exact text; the worker plays it as
+LiveKit audio frames (`_say`, `_say_private`, and `tts_node` for gate lines) and never calls the advisory graph or
+live TTS in this phase. A clip that is missing, unreadable or rendered from different text (hash mismatch) is spoken
+with live TTS of the same fixed text and logs a warning (never a digit). Only en-IN exists: the phone flow is English
+and the repo has no Hindi or Telugu wording for these lines yet. Re-render after changing any line:
+
+```bash
+GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py            # renders changed or missing clips only
+GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py --force --only digit_6
+```
+
+One Timbre request per clip (about 30). Digit clips keep only their first spoken word, because Timbre sometimes
+repeats a lone word after a pause. After verification the same session continues as the normal dynamic agent.
+
+**Tone after verification.** Once a caller is verified (phone: keypad; browser: the `Voice Session` row), the worker
+starts the tone engine (`apps/voice/tone_wiring.py` -> `tone_hook.py`). Each turn it plans a tier from live signals
+(confusion, anger, distress, barge-in, language), sets the Timbre speed inside 0.90-1.05, speaks closed-set
+acknowledgement / hand-over lines from `tone_cards.py` around the graph answer, and speaks only the whole graph
+sentences that fit the tier's word and sentence budget (deferred sentences are never cut or rewritten; the page still
+gets the full answer card). On a safety turn the answer is withheld and the unapproved safety line is never spoken.
+Nothing in the auth phase reaches the tone engine. Not wired yet: decision prefetch from ZEN (no decision-record port
+in the worker, so the hook runs without a record), `respond()` templates, and the silence / close plans.
+
+**SIP configuration.** The provider trunk must send DTMF as RFC 4733 / RFC 2833 `telephone-event` (not in-band audio);
+LiveKit SIP relays those tones to the room as `sip_dtmf_received`. If your trunk or dispatch rule has a DTMF
+forwarding setting, it must be on, and the dispatch rule must not hide the caller's number (`hide_phone_number`
+off), or every caller is treated as unknown. Phone prompts are English only.
+
+**Phone assertion.** After verification the worker asks Frappe for an assertion at
+`loan_advisory_portal.api.voice.phone_assertion` (`PhoneAssertions`) with the applicant and application the
+directory record names, the room, the participant identity and the factor that was verified (never a digit). It
+authenticates exactly like `voice_assertion` (an `Agent Integration` API key) and returns the same shape: a 60-second
+assertion for that one customer and application, with thread `phone-<hash of room and identity>`. Frappe cannot see
+the keypad, so the integration account vouches for the verification. Frappe refuses unless the site sets
+`voice_phone_assertions: 1` in `site_config.json` (off by default), and answers an unknown application, one that
+belongs to another applicant, a disabled customer or a suspended/closed borrower with the same 404. An applicant with
+no portal account gets `sub = phone:<customer>`. The method is read-only, logs nothing, and only hashes the SIP
+identity (which can embed the caller's number). Budgets: 600/hour per service account, 240/hour per applicant. Until a
+site turns the flag on, a verified caller hears the "couldn't reach the advisory service" line (fails closed). The
+"connect you to a member of our team" offer is spoken only; no SIP transfer is wired.
+
+**Demo-grade.** Four digits are 10,000 combinations and caller ID can be spoofed. This shows the flow; it is not
+production authentication.
+
 ## Privacy rules that hold
 
 - The LiveKit API secret never leaves the server; the browser gets a scoped, short-lived JWT only.

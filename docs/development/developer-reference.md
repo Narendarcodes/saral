@@ -59,7 +59,7 @@ test inventory and known gaps.
 | Guards | Deterministic request guards before the LLM (guarantee, override, record edit, other applicant, injection, auto-submit, dispute, misrepresentation, not-available), in English, Hindi and Telugu; answer guards after it (guarantee/decision language, NBFC written-reason claims, ungrounded numbers, citation labels); one rewrite, then a template. The model names an intent from six fixed values and never selects a tool | `guards.py`, `graph.py` |
 | Policy RAG | 38-source register with approval status and supersedes links; BM25 + EmbeddingGemma 2 in Qdrant, weighted RRF, `bge-reranker-v2-m3`; lender-profile filter applied before ranking | `data/sources/`, `rag/`, `config/rag.yaml` |
 | Personalisation | Literacy level (low / medium / high) and locale (en / hi / te) shape the wording | `prompts.py` |
-| Voice | Self-hosted LiveKit 1.13 + LiveKit Agents 1.8, Silero VAD, IndicConformer-600M (hi/te) and Whisper large-v3-turbo (en) STT, svara-tts-v1 TTS; sentence-streamed answers behind the same guards | `apps/voice/`, `infra/voice/` |
+| Voice | Self-hosted LiveKit 1.13 + LiveKit Agents 1.8, Silero VAD, Gnani Prisma v3.0 streaming STT and Timbre v3.0 TTS (voice Tarika) via livekit-plugins-gnani; sentence-streamed answers behind the same guards | `apps/voice/`, `infra/voice/` |
 | Observability | OpenTelemetry → self-hosted Arize Phoenix; optional self-hosted Langfuse on the same span tree; message text is not exported unless `AGENT_TRACE_CONTENT=1` (Phoenix) or `LANGFUSE_CAPTURE_CONTENT=1` (Langfuse) | `observability.py`, `langfuse_config.py`, `docs/observability/langfuse.md` |
 | Tooling | Ruff + pytest in GitHub Actions on pushes and PRs to `main`; optional pre-commit hook with staged ruff fixes and the test suite | `.github/workflows/ci.yml`, `.githooks/pre-commit` |
 
@@ -138,12 +138,12 @@ There is no demo sign-in: the borrower authenticates to Frappe, never to this se
 
 ### 4. Voice
 
-`infra/voice/up.sh` brings up LiveKit, the STT container, the TTS vLLM + SNAC sidecar and the worker on the GPU droplet,
-all bound to 127.0.0.1. The worker on its own:
+`infra/voice/up.sh` brings up LiveKit (bound to 127.0.0.1) and the worker; speech goes to Gnani's API. The worker on
+its own (`pip install -r apps/voice/requirements.txt`; `GNANI_*` settings in `.env.example`):
 
 ```bash
 LIVEKIT_URL=ws://127.0.0.1:7880 LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=... \
-AGENT_HTTP=http://127.0.0.1:8095 STT_HTTP=http://127.0.0.1:8791 TTS_HTTP=http://127.0.0.1:8793 \
+AGENT_HTTP=http://127.0.0.1:8095 GNANI_API_KEY=... \
 FRAPPE_URL=http://127.0.0.1:8080 FRAPPE_API_KEY=<service key> FRAPPE_API_SECRET=<service secret> \
   python apps/voice/agent_worker.py start
 ```
@@ -189,10 +189,11 @@ Copy `.env.example` to `.env`. Never commit real secrets.
 | `AGENT_LOG_MAX_BYTES` | `52428800` | Size cap for each active JSONL log. At the cap the file is renamed to a dated archive and a fresh one starts, so rotation never drops a row; `0` disables rotation |
 | `AGENT_STATE_DIR` | – | Root for `turns.jsonl`, `handoffs.jsonl` and `traces/`; a per-artifact env var or an explicit argument wins. New directories are 0700 and new files 0600 on POSIX; existing files are never moved or chmodded |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | – | Voice; Frappe mints the room token (`api/livekit.py`) and returns 503 without them |
-| `AGENT_HTTP`, `STT_HTTP`, `TTS_HTTP` | `:8095`, `:8791`, `:8793` | Voice worker targets |
+| `AGENT_HTTP` | `:8095` | Voice worker's advisory server |
+| `GNANI_API_KEY`, `GNANI_STT_*`, `GNANI_TTS_*` | key unset; `prisma-v3.0`, `codemix`, `timbre-v3.0`, `Tarika`, speed `1.0` | Gnani speech (see `.env.example` and `loan_advisory/agent/settings.py`) |
 | `VOICE_STREAM`, `VOICE_HTTP_TIMEOUT_S`, `VOICE_FILLER_AFTER_S` | `1`, `40`, `4` | Sentence streaming; worker timeout (must exceed the graph deadline); "one moment" filler |
 | `VOICE_TURN_LOG`, `VOICE_WORKER_PORT` | `/root/hx/loan/voice/turns.jsonl`, `8081` | Per-turn JSONL log (timings, locale, engine, audio duration; no transcript); worker HTTP port |
-| `VOICE_MIN_ENDPOINTING_S`, `VOICE_VAD_MIN_SILENCE_S`, `VOICE_TTS_GENDER` | `0.5`, `0.55`, `Female` | End-of-turn delay, Silero silence, TTS voice |
+| `VOICE_MIN_ENDPOINTING_S`, `VOICE_VAD_MIN_SILENCE_S` | `0.5`, `0.55` | End-of-turn delay, Silero silence |
 
 ### `AGENT_CITATION_MODE`
 
@@ -258,7 +259,7 @@ apps/api/src/loan_advisory/
   infrastructure/   frappe_adapter.py (mock store + REST client), evidence_store.py, bureau_client.py
   api/              FastAPI factory, assertion verifier, AG-UI + chat routes, admission middleware
 apps/bureau/src/synthetic_bureau/  local-only FastAPI bureau (app.py, generator.py, fixtures.py, scoring.py)
-apps/voice/         agent_worker.py (LiveKit Agents), voice_assertion_exchange.py, tts_sidecar.py (svara + SNAC)
+apps/voice/         agent_worker.py (LiveKit Agents), voice_assertion_exchange.py, gnani_speech.py (Gnani Prisma STT + Timbre TTS)
 apps/web/assistant/ React island (CopilotKit) built into the Frappe app's public/js/assistant/
 apps/web/chat/      legacy static pages; nothing serves them any more
 config/             rag.yaml, bureau_dq_policy.json,

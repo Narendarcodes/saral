@@ -1,8 +1,10 @@
 """Automated voice-loop test: synthesized applicant utterances -> LiveKit -> voice worker -> graph -> TTS -> back.
 
 Runs a headless LiveKit participant (livekit rtc SDK) that behaves like the browser: it signs in through the
-advisory server, gets a LiveKit token, publishes a microphone track fed from synthesized speech (svara-TTS, MALE
-voice, so it differs from the assistant's female voice) and listens to the assistant's audio track.
+advisory server, gets a LiveKit token, publishes a microphone track fed from synthesized speech (Gnani Timbre v3.0,
+MALE voice Devansh, so it differs from the assistant's female voice Tarika) and listens to the assistant's audio track.
+Needs GNANI_API_KEY (the applicant's utterances are synthesized by Gnani); without it the script skips and exits 0.
+For a quick Prisma + Timbre check with no LiveKit, use scripts/voice/gnani_roundtrip.py.
 
 Measured per turn (client clock): end of the applicant's utterance -> first non-silent assistant audio frame
 (= end-to-end response latency the user hears). The worker's turn log adds the breakdown (STT, graph incl. LLM TTFT,
@@ -15,15 +17,19 @@ import asyncio
 import json
 import os
 import re
+import sys
 import time
 import unicodedata
 import urllib.request
+from pathlib import Path
 
 import numpy as np
 from livekit import rtc
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(ROOT / "apps" / "voice"), str(ROOT / "apps" / "api" / "src")]
 AGENT = os.environ.get("AGENT_HTTP", "http://127.0.0.1:8095")
-TTS = os.environ.get("TTS_HTTP", "http://127.0.0.1:8793")
+APPLICANT_VOICE = os.environ.get("VOICE_LOOP_APPLICANT_VOICE", "Devansh")  # Timbre v3.0 male voice
 SCRIPT = {
     "en": [("Why was my loan application rejected?", "explain"),
            ("What can I do to improve before I reapply?", "improve"),
@@ -37,7 +43,7 @@ SCRIPT = {
            ("మళ్ళీ దరఖాస్తు చేసే ముందు నేను ఏమి మెరుగుపరచాలి?", "improve"),
            ("లెండర్‌కు ఫిర్యాదు ఎలా చేయాలి?", "policy")],
 }
-SR = 24000
+SR = 22050
 
 
 def post(path, body, tok=None, base=AGENT):
@@ -46,9 +52,20 @@ def post(path, body, tok=None, base=AGENT):
     return urllib.request.urlopen(req, timeout=120).read()
 
 
-def synth(text, lang):
-    pcm = post("/v1/tts", {"text": text, "language": lang, "gender": "Male"}, base=TTS)
-    return np.frombuffer(pcm, dtype=np.int16)
+async def synth(text, lang):
+    """The applicant's utterance from Gnani Timbre (same builder as the worker, different voice)."""
+    import aiohttp
+    from dataclasses import replace
+    from gnani_speech import build_tts
+    from loan_advisory.agent.settings import GnaniSpeechSettings
+    tts = build_tts(replace(GnaniSpeechSettings.from_env(), tts_voice=APPLICANT_VOICE, tts_sample_rate=SR), lang)
+    pcm = bytearray()
+    async with aiohttp.ClientSession() as http:
+        tts._session = http
+        async with tts.synthesize(text) as stream:
+            async for ev in stream:
+                pcm += ev.frame.data.tobytes()
+    return np.frombuffer(bytes(pcm), dtype=np.int16)
 
 
 def cer(ref, hyp):
@@ -117,7 +134,7 @@ async def run_session(lang, external_ref, literacy, out_rows):
     t_join = time.perf_counter()
     await wait_quiet(t_join, quiet=1.5, timeout=60)  # greeting
     for text, expect in SCRIPT[lang]:
-        audio = synth(text, lang)
+        audio = await synth(text, lang)
         n_ans = len(answers)
         await push(audio)
         t_end = time.perf_counter()
@@ -145,6 +162,9 @@ async def main():
     ap.add_argument("--ref", default="SYN-APP-00000")
     ap.add_argument("--langs", default="en,hi,te")
     a = ap.parse_args()
+    if not os.environ.get("GNANI_API_KEY"):
+        print("SKIP: GNANI_API_KEY is not set; the applicant's speech is synthesized by Gnani Timbre")
+        return
     os.makedirs(a.out, exist_ok=True)
     rows = []
     for lang, lit in [(l, "medium" if l == "en" else "low") for l in a.langs.split(",")]:

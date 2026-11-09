@@ -357,6 +357,36 @@ The agent accepts only a 60-second signed assertion minted by Frappe. It cannot 
 
 Configuration and test reference: [docs/development/developer-reference.md](docs/development/developer-reference.md).
 
+### Voice (Gnani speech, `apps/voice/`)
+
+The LiveKit voice worker uses **Gnani** for all speech: **Prisma v3.0** streaming speech-to-text (en-IN, hi-IN,
+te-IN, code-mixed English) and **Timbre v3.0** text-to-speech (voice `Tarika`, speed 0.85-1.15), through the
+official `livekit-plugins-gnani` plugin. Silero VAD handles turn-taking and barge-in; the reply still comes from the
+same LangGraph agent and guards, whose LLM is set by `SARAL_LLM_*` (Groq is one of the providers). No speech model
+runs locally. Set `GNANI_API_KEY` and, optionally, the `GNANI_*` settings in `.env.example`.
+
+```bash
+python -m pip install -r apps/voice/requirements.txt
+GNANI_API_KEY=... python scripts/voice/gnani_roundtrip.py --out /tmp/gnani_rt   # one Timbre line + one Prisma transcription
+```
+
+**Phone callers (SIP) verify on the keypad.** A caller's number is matched to a synthetic applicant; an unknown number
+gets no account details and is offered a person. The caller then picks one factor (1: loan application number, 2: bank
+account number) and keys its last 4 digits, which are read back and checked against a salted HMAC-SHA256 hash.
+Everything before verification is **pre-recorded** Timbre v3.0 / Tarika audio (`apps/voice/prompts/en-IN/`): greeting,
+menu, enter-digits, the read-back stitched from "you entered" + one clip per digit + "press 1 to confirm", mismatch,
+retry, locked, timeout and "verified, connecting you to Saral". The auth phase never calls the LLM or live TTS; a
+missing or stale clip falls back to live TTS of the same fixed line with a warning. Three failures lock the call; nothing about the application is said before
+verification, and digits never reach the LLM, transcripts or logs. DTMF must reach LiveKit as RFC 4733
+`telephone-event` from the SIP trunk. This is demo-grade authentication (4 digits). Details:
+[docs/architecture/livekit-integration.md](docs/architecture/livekit-integration.md#phone-callers-keypad-verification-sip--dtmf).
+
+```bash
+CALLER_VERIFY_HMAC_KEY=$(openssl rand -hex 32) python scripts/voice/seed_caller_directory.py --out /srv/saral/caller_directory.json
+# re-render the auth clips after changing any line in caller_verification.PROMPT (unchanged lines are skipped)
+GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py [--locale en-IN] [--force] [--only menu,digit_4]
+```
+
 ## Evaluation setup and results
 
 ### Setup
@@ -449,9 +479,8 @@ Full list with counts, examples and a fix per item:
 
 ## Future scope
 
-- **Voice chat (LiveKit).** Let borrowers talk to Saral instead of typing: a LiveKit room per session, streaming
-  speech-to-text in English, Hindi and Telugu, the same LangGraph agent and guards in the middle, and text-to-speech
-  for the reply. The chat panel already reserves a Voice tab; the integration design is in
+- **Voice chat in the portal (LiveKit).** The worker with Gnani speech is in `apps/voice/` (see Voice above); the
+  chat panel's Voice tab still has to be connected to it. Design:
   [docs/architecture/livekit-integration.md](docs/architecture/livekit-integration.md).
 - **Laya intent router.** Fine-tune on the prepared 1,027-row EN/HI/TE set, refit the per-intent thresholds,
   re-benchmark against the Groq classifier, then wire it in front of the classifier (the router ships switched off).

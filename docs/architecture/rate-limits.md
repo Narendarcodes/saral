@@ -34,6 +34,8 @@ refused as unauthenticated (401) rather than counted.
 | `conversation-log` | `record_turn` (one transcript write per answered turn) | 120 / hour |
 | `voice-session` | `create_voice_session` (consented starts only) | 10 / hour |
 | `voice-assertion` | `voice_assertion` (service account, one per spoken turn) | 600 / hour |
+| `phone-assertion` | `phone_assertion` (service account, one per spoken phone turn) | 600 / hour |
+| `phone-assertion-applicant` | `phone_assertion` (per applicant, across service accounts) | 240 / hour |
 | guest invitation validation | `invitations.validate` (IP, existing decorator) | 20 / hour |
 | guest invitation redemption | `invitations.redeem` (IP, existing decorator) | 10 / hour |
 
