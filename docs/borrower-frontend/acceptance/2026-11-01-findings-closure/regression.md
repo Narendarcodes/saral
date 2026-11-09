@@ -10,7 +10,7 @@ are shown only for comparison. Raw output files are named in the table so each c
 | Suite | Command | Baseline | This run | Result |
 | --- | --- | --- | --- | --- |
 | Host repository suite | `python -m pytest -q` | 685 passed / 15 skipped | **685 passed, 15 skipped**, 2 warnings, 41.01s ([host-pytest.txt](regression/host-pytest.txt)) | match |
-| Frappe portal app | `docker exec loanrangers-backend-1 bench --site loanportal.local run-tests --app loan_advisory_portal` | `Ran 171 tests … OK` | **`Ran 179 tests in 46.065s` / `OK`** ([frappe-portal-tests.txt](regression/frappe-portal-tests.txt)) | +8, the new transcript-contract module |
+| Frappe portal app | `docker exec saral-backend-1 bench --site loanportal.local run-tests --app loan_advisory_portal` | `Ran 171 tests … OK` | **`Ran 179 tests in 46.065s` / `OK`** ([frappe-portal-tests.txt](regression/frappe-portal-tests.txt)) | +8, the new transcript-contract module |
 | KYC page module | same, `--module loan_advisory_portal.tests.test_kyc_page` | `Ran 2 tests … OK` | **`Ran 2 tests in 1.269s` / `OK`** ([frappe-kyc-tests.txt](regression/frappe-kyc-tests.txt)) | match |
 | Island unit tests | `npm --prefix apps/web/assistant run test` | 72 passed (9 files) | **86 passed (10 files)**, 7.16s ([island-tests.txt](regression/island-tests.txt)) | +14, thread-contract tests |
 | Runtime gateway | `npm --prefix apps/runtime run test` | 13 passed | **13 tests, 13 pass, 0 fail**, 10.045s ([runtime-tests.txt](regression/runtime-tests.txt)) | match |

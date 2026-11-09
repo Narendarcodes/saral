@@ -61,7 +61,7 @@ come from `audit.json` from the run on 2026-10-14.
   re-publishers, not by LendingClub.
 * Use is therefore limited to non-commercial capstone research. We do not redistribute
   anything: no raw or derived rows go in git.
-* Before any commercial or VaaniLabs use, LendingClub's terms must be reviewed.
+* Before any commercial use, LendingClub's terms must be reviewed.
 
 ## 3. Field coverage vs the canonical schema
 
@@ -146,7 +146,7 @@ Normalisation rules (in `scripts/data/normalise_datasets.py`; every row carries
 
 ## 6. Gaps that need synthetic scenarios or the partner
 
-1. **Unresolved:** an authorised, anonymised VaaniLabs or partner lender dataset with applications,
+1. **Unresolved:** an authorised, anonymised partner lender dataset with applications,
    decisions, reason codes and policy versions. This is the only path to real validation.
 2. **Unresolved:** rejected LendingClub records. These need the user's Kaggle API token on the
    droplet (`KAGGLE_USERNAME`, `KAGGLE_KEY`); rerun `download_datasets.py --only lc_kaggle_rejected`.

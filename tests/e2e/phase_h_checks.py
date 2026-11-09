@@ -25,7 +25,7 @@ BASELINE = {
     "x-frame-options": "SAMEORIGIN",
     "permissions-policy": "geolocation=(), camera=(), microphone=(self)",
 }
-CONTAINER = "loanrangers-backend-1"
+CONTAINER = "saral-backend-1"
 
 
 def check(results, name, ok, detail=None):

@@ -15,7 +15,7 @@ import json
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
-COMPANY, ABBR = "Loan Rangers Test NBFC", "LRT"
+COMPANY, ABBR = "Saral Test NBFC", "LRT"
 PRODUCT = "SYN-PERSONAL-001"
 OFFSET = "Standard Collection Order"
 LIFECYCLE = "\n".join(["SUBMITTED", "INFO_REQUESTED", "UNDER_REVIEW", "MANUAL_REVIEW", "APPROVED", "REJECTED", "WITHDRAWN"])

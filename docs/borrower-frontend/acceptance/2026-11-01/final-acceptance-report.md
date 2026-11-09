@@ -2,7 +2,7 @@
 
 Date: 2026-11-01
 Repository: `Load-advisory-agent-frappe`, branch `feat/frappe-borrower-platform`, HEAD `7ec710e`
-Target site: disposable `loanportal.local` inside `loanrangers-backend-1`, reached through the
+Target site: disposable `loanportal.local` inside `saral-backend-1`, reached through the
 temporary acceptance front door `http://127.0.0.1:8081`
 Evidence directory: `docs/borrower-frontend/acceptance/2026-11-01/`
 
@@ -186,7 +186,7 @@ Inventory recorded before anything was started: [logs/service-inventory.md](logs
 
 | Service started here | Stopped how | Verified |
 | --- | --- | --- |
-| Frappe dev server `--port 8001` (inside `loanrangers-backend-1`, PIDs 2334 + child 2337) | `kill -TERM` — graceful | container reports `8001: not listening` |
+| Frappe dev server `--port 8001` (inside `saral-backend-1`, PIDs 2334 + child 2337) | `kill -TERM` — graceful | container reports `8001: not listening` |
 | nginx front door `loanportal-acceptance-proxy` (host `127.0.0.1:8081`, id `4ab4484e5984`) | `docker stop` then `docker rm` — it was created **without** `--rm` (`AutoRemove=false Restart=no`), so it survives a stop until removed explicitly; that was recorded up front to avoid the previous `--rm` surprise | `docker ps -a --filter name=loanportal` → empty |
 | CopilotKit runtime `127.0.0.1:4200` (host PID 11404) | `taskkill /PID 11404 /T` requested first **without** `/F`; Windows refused ("can only be terminated forcefully") for this windowless console process, so it was terminated with `/F` on the recorded PID only | port released |
 | Test-only AG-UI stub `127.0.0.1:8096` (host PID 30624) | same sequence, same refusal then `/F` on the recorded PID | port released |
@@ -196,7 +196,7 @@ Inventory recorded before anything was started: [logs/service-inventory.md](logs
 - **GPU verification:** `nvidia-smi` reports **0 MiB used of 4096 MiB**. The RAG agent was never
   started for this task, as instructed — the deterministic fixture removed any technical necessity
   for a model.
-- **Persistent data preserved:** `loanrangers-backend-1` remains `Up 4 hours`; no volume was
+- **Persistent data preserved:** `saral-backend-1` remains `Up 4 hours`; no volume was
   removed, no `docker system prune` was run, no image was deleted, and the `loanportal.local`
   database is intact. Logs were copied out before shutdown
   (`logs/frappe-serve.log` 5,491 lines, `logs/runtime.log`, `logs/agui-stub.log`).

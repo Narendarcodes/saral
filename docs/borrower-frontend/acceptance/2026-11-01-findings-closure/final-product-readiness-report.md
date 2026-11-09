@@ -302,7 +302,7 @@ the baseline.
 Full detail: [environment-lifecycle.md](environment-lifecycle.md),
 [`environment/`](environment).
 
-- **Started here (4):** Frappe dev server `:8001` inside `loanrangers-backend-1` (container pids
+- **Started here (4):** Frappe dev server `:8001` inside `saral-backend-1` (container pids
   8483/8486); nginx front door `127.0.0.1:8081` (`loanportal-acceptance-proxy`, id `4bd676ee8025`,
   created *without* `--rm`); CopilotKit runtime `127.0.0.1:4200` (host pid 36316); deterministic AG-UI
   stub `127.0.0.1:8096` (host pid 34888). **Deliberately not started:** the live FastAPI agent on
@@ -388,7 +388,7 @@ consent-timestamp-correct, or production-evidenced.
    `Advisory Message`, or mark the account visibly as a test account. Longer term, a "test thread" flag
    would make fixture transcripts distinguishable without a cleanup at all.
 
-Also for the record: `/tmp/seed_applications.json` in `loanrangers-backend-1` (root-owned, 2026-10-19,
+Also for the record: `/tmp/seed_applications.json` in `saral-backend-1` (root-owned, 2026-10-19,
 9,890 bytes) predates this task and may hold seeding data; it was left untouched and is flagged rather
 than deleted or read. And the `tests/e2e/README.md` standing rules now encode the two mistakes this task
 found, so the next harness does not repeat them.

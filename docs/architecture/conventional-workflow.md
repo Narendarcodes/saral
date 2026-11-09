@@ -7,7 +7,7 @@ production-ready, and all policy content is synthetic.
 
 | Concern | Where | Notes |
 |---|---|---|
-| Frappe stack (droplet) | `infra/frappe/loanrangers.droplet.yml` | Same services as P1 (`loanrangers.yml`). Frontend is bound to `127.0.0.1` only; the DB root password comes from env (an untracked `secrets.env`); separate `loanhx_*` volumes. Image `loanrangers-frappe:16`, rebuilt 2026-10-14 from `version-16`: frappe 16.52.0, erpnext 16.50.0, lending 16.6.2. P1 used frappe 16.51.0 and lending 16.6.1. |
+| Frappe stack (droplet) | `infra/frappe/saral.droplet.yml` | Same services as P1 (`saral.yml`). Frontend is bound to `127.0.0.1` only; the DB root password comes from env (an untracked `secrets.env`); separate `loanhx_*` volumes. Image `saral-frappe:16`, rebuilt 2026-10-14 from `version-16`: frappe 16.52.0, erpnext 16.50.0, lending 16.6.2. P1 used frappe 16.51.0 and lending 16.6.1. |
 | Site creation | `infra/frappe/bootstrap/create_site.sh` | Idempotent: `new-site` + erpnext, then `install-app lending` |
 | Repeatable seeding | `infra/frappe/bootstrap/seed.sh` → `seed_site.py` (+ `make_seed.py` → `seed_applications.json`) | Runs the setup wizard in-process (company INR, FY 2026-27); creates the offset order, Loan Product `SYN-PERSONAL-001`, custom fields, the evidence DocType, customers and 40 draft applications. **Records are keyed by `custom_external_ref`, never by autoname**, so re-running creates nothing new (verified). |
 | Versioned policy | `decision_engine/policies/registry.json` + `registry.py` | `(policy_id, version)` → policy JSON + ZEN JDM, each pinned by sha256 of its LF-normalised bytes. A tampered or edited file makes the load **fail closed** (`PolicyIntegrityError`). Only `synthetic-v1` is registered (status active, `synthetic: true`). |
@@ -66,8 +66,8 @@ REJECTED ─▶ MANUAL_REVIEW                                              (disp
 ## Reproduce on a fresh host
 
 ```bash
-docker build ... --tag=loanrangers-frappe:16   # frappe_docker layered Containerfile, apps.json (P1 docs)
-DB_ROOT_PASSWORD=... docker compose -f infra/frappe/loanrangers.droplet.yml up -d
+docker build ... --tag=saral-frappe:16   # frappe_docker layered Containerfile, apps.json (P1 docs)
+DB_ROOT_PASSWORD=... docker compose -f infra/frappe/saral.droplet.yml up -d
 DB_ROOT_PASSWORD=... FRAPPE_ADMIN_PASSWORD=... infra/frappe/bootstrap/create_site.sh
 infra/frappe/bootstrap/seed.sh            # idempotent
 # API keys: bench execute frappe.core.doctype.user.user.generate_keys (store outside git)

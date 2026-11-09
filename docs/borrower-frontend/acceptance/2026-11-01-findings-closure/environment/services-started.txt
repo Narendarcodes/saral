@@ -5,7 +5,7 @@ Recorded so that only these processes are stopped afterwards. The baseline in
 
 | Service | Where it runs | Identifier | Started |
 | --- | --- | --- | --- |
-| Frappe dev server `:8001` | inside `loanrangers-backend-1` (`bench --site loanportal.local serve --port 8001`) | container pids 8483 (bench) / 8486 (werkzeug) | 2026-11-01 ~15:41Z |
+| Frappe dev server `:8001` | inside `saral-backend-1` (`bench --site loanportal.local serve --port 8001`) | container pids 8483 (bench) / 8486 (werkzeug) | 2026-11-01 ~15:41Z |
 | Test front door `127.0.0.1:8081` | container `loanportal-acceptance-proxy` (nginx:alpine, `tests/e2e/nginx.loanportal.conf`) | docker pid 83633, `AutoRemove=false` so it survives a `docker stop` | 2026-11-01T15:41:22Z |
 | CopilotKit runtime `127.0.0.1:4200` | host, `apps/runtime/dist/index.js` | host pid 36316 | this segment |
 | Deterministic AG-UI stub `127.0.0.1:8096` | host, `tests/e2e/agui_stub.cjs` (`STUB_APPLICATION=ACC-LOAP-2026-00020`) | host pid 34888 | this segment |
@@ -16,7 +16,7 @@ Deliberately **not** started:
   and no GPU memory is held;
 - `loanportal-e2e-proxy` — the front door above is the same config, created without `--rm` on purpose.
 
-Everything else that was already running (the `loanrangers-*` bench containers and the six
+Everything else that was already running (the `saral-*` bench containers and the six
 `loan-advisory-langfuse-*` containers) is untouched by this run.
 
 ## GPU

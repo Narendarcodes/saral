@@ -3,7 +3,7 @@
 Status: research note for the investigation question bank. Written Oct 15, 2026. It writes down decisions that the code on this
 branch already makes, so they can be cited. Nothing here is new behaviour. Each line points to the file that implements it.
 Where the code makes a prototype choice that a real deployment would have to confirm, the "Who must confirm" line says so.
-Nothing below is a statement about VaaniLabs, any lender or real applicants.
+Nothing below is a statement about any lender or real applicants.
 
 ## 1. Data correction and disputes (s.19)
 
@@ -50,7 +50,7 @@ What triggers a handoff in the built system (`graph.py` `boundary`, `simple`):
   hash/length of the applicant's message — not the message itself. The reviewer can reopen the decision evidence from the application
   ref, and each turn's audit log (`AGENT_AUDIT_LOG`) holds the trace. There is no reviewer UI and no live transfer of the conversation.
 - **Not built:** escalation on fraud signals (misrepresentation requests are refused, not escalated), on repeated failed explanations,
-  or on applicant distress; a human continuing the same conversation. Who must decide these for a deployment: VaaniLabs and a partner
+  or on applicant distress; a human continuing the same conversation. Who must decide these for a deployment: the deployer and a partner
   lender.
 
 ## 3. Privacy (s.20) and data security
@@ -68,7 +68,7 @@ What triggers a handoff in the built system (`graph.py` `boundary`, `simple`):
   and handoff queue do store message text.
 - **Retention period, anonymisation policy, consent capture:** not set by the project. RBI's Digital Lending Directions, 2025
   require lenders to have and disclose a data-storage policy covering how long data can be stored (see
-  `docs/research/regulation-and-design-references.md`). Who must decide: the lender deploying it (and VaaniLabs as its provider).
+  `docs/research/regulation-and-design-references.md`). Who must decide: the lender deploying it.
 
 ## 4. Safety edge cases (s.35)
 

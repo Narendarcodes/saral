@@ -1,7 +1,7 @@
 # Part A — database integrity and `consent_at` reconciliation
 
 Investigated 2026-11-01 on site `loanportal.local` (database `_21ddc3370f18f30e`, container
-`loanrangers-db-1`). Nothing in this task wrote to the database; every statement used is in
+`saral-db-1`). Nothing in this task wrote to the database; every statement used is in
 [integrity-probe.sql](database/integrity-probe.sql) and is a `SELECT`. Machine-readable evidence:
 [versions-borrower-profile.jsonl](database/versions-borrower-profile.jsonl) (the five Version
 records, fetched through `frappe.client.get`) and
@@ -13,7 +13,7 @@ Full console output: [integrity-probe-output.txt](database/integrity-probe-outpu
 | | |
 | --- | --- |
 | Document | `Borrower Profile` → `review.demo@example.invalid` ("Review Demo Borrower", Customer `Review Demo Borrower`, status Active, onboarding_state Registered) |
-| Site / database | `loanportal.local` / `_21ddc3370f18f30e`, inside the disposable `loanrangers` bench |
+| Site / database | `loanportal.local` / `_21ddc3370f18f30e`, inside the disposable `saral` bench |
 | Environment check | `allow_tests` site, every borrower identity is `@example.invalid`, `tabLoan` / `tabLoan Disbursement` / `tabLoan Demand` hold **0 rows**, 12 seeded loan applications. This is the disposable test environment, not a production-like one. |
 | Other profiles touched | none — 4 of the 5 `Borrower Profile` rows were last modified on 2026-10-30 |
 

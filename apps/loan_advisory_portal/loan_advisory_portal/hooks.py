@@ -1,6 +1,6 @@
 app_name = "loan_advisory_portal"
 app_title = "Loan Advisory Portal"
-app_publisher = "Loan Rangers"
+app_publisher = "Golla Narendar"
 app_description = "Borrower portal for the Loan Advisory Agent, built on Frappe and Frappe Lending"
 app_email = "dev@example.invalid"
 app_license = "MIT"

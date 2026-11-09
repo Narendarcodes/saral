@@ -161,7 +161,7 @@ docker run --rm --name hx-loan-rag --device=/dev/kfd --device=/dev/dri --group-a
 1. **Unresolved.** Manually obtain and review the RBC Directions 2025 (CB and NBFC). Without them,
    current-mode answers about rejection reasons must abstain or explicitly cite historical text.
 2. **Unresolved.** Human sign-off on the register (`reviewed_by` is automated) and confirmation of
-   which lender type the VaaniLabs partner is (bank vs NBFC); this decides which RBC text applies.
+   which lender type the partner is (bank vs NBFC); this decides which RBC text applies.
 3. **Proposed.** Weighted fusion or a reranker, temporal routing, and 50+ abstention negatives.
 4. **Proposed.** Add Hindi/Telugu queries, since 293 personas narrate in Indic script; this has not
    been evaluated yet.

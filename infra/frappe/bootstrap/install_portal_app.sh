@@ -11,14 +11,14 @@
 # re-run it whenever the container is recreated: `docker cp` content does not survive a new
 # container, and the sites volume does not carry apps/.
 #
-#   FRAPPE_SITE=loanportal.local FRAPPE_BACKEND=loanrangers-backend-1 \
+#   FRAPPE_SITE=loanportal.local FRAPPE_BACKEND=saral-backend-1 \
 #     ./infra/frappe/bootstrap/install_portal_app.sh
 #
 # Safe to re-run: the copy overwrites, the symlink is forced, install-app and migrate are guarded.
 set -euo pipefail
 
 SITE=${FRAPPE_SITE:-loanportal.local}
-BACKEND=${FRAPPE_BACKEND:-loanrangers-backend-1}
+BACKEND=${FRAPPE_BACKEND:-saral-backend-1}
 APP=loan_advisory_portal
 BENCH=/home/frappe/frappe-bench
 

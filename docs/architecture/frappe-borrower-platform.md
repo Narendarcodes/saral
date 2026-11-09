@@ -108,7 +108,7 @@ flowchart TB
 
 | Component | Version | Evidence |
 | --- | --- | --- |
-| Frappe Framework | 16.51.0 | container image `loanrangers-frappe:16`, `bench version` |
+| Frappe Framework | 16.51.0 | container image `saral-frappe:16`, `bench version` |
 | ERPNext | 16.50.0 | same image |
 | Frappe Lending | 16.6.1 | `apps/lending` inside the bench |
 | bench | 5.31.0 | bench CLI |

@@ -2,7 +2,7 @@
 
 ## Fixtures (all synthetic, created via REST unless noted)
 
-Company "Loan Rangers Test NBFC" (INR, via setup wizard) · Customer
+Company "Saral Test NBFC" (INR, via setup wizard) · Customer
 `CUS-TEST-001` (renamed via bench; autoname ignores explicit `name`) ·
 Loan Product `SYN-PERSONAL-001` ("Personal Loan — Synthetic", 14%, max 10L) ·
 Loan Application **`ACC-LOAP-2026-00001`** (autoname kept — rename blocked):

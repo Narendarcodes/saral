@@ -23,7 +23,7 @@ flowchart TD
 | Layer | Tool | Status | Why it exists |
 | --- | --- | --- | --- |
 | L1 | `bench run-tests`, `FrappeTestCase` | verified | fast regression on permissions, lifecycle, validation |
-| L2 | `curl` in `loanrangers-backend-1` | verified | proves routing, redirects, CSRF and error surfaces end to end |
+| L2 | `curl` in `saral-backend-1` | verified | proves routing, redirects, CSRF and error surfaces end to end |
 | L3 | L1 tests + `pytest tests/test_agent_api.py tests/test_voice_assertions.py` + `apps/runtime/test` | verified | pins the credential bridge and the agent surface end to end, offline |
 | L4 | Playwright (Edge) | verified | exercises the real browser path: session cookie, island, `/api/copilotkit`, mint, FastAPI, evidence |
 | L5 | Playwright + `requests` | verified | IDOR, CSRF, replay, body-override, CORS, voice bridge, logout |
@@ -216,7 +216,7 @@ Existing modules gained assertions rather than new files: `test_feedback.py` (bo
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| Frappe L1 | `bench --site loanportal.local run-tests --app loan_advisory_portal` (inside `loanrangers-backend-1`) | `Ran 136 tests in 39.415s` — **OK** |
+| Frappe L1 | `bench --site loanportal.local run-tests --app loan_advisory_portal` (inside `saral-backend-1`) | `Ran 136 tests in 39.415s` — **OK** |
 | Host | `python -m pytest` from the repo root | **662 passed, 15 skipped** |
 | Lint | `ruff check apps/api/src apps/loan_advisory_portal tests` | **All checks passed!** |
 | JS syntax | `node --check public/js/pages/invite.js` | clean |
@@ -243,7 +243,7 @@ read, and restored in the island from a server-owned transcript.
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| Frappe L1 | `bench --site loanportal.local run-tests --app loan_advisory_portal` (inside `loanrangers-backend-1`) | `Ran 145 tests in 46.418s` — **OK** |
+| Frappe L1 | `bench --site loanportal.local run-tests --app loan_advisory_portal` (inside `saral-backend-1`) | `Ran 145 tests in 46.418s` — **OK** |
 | Host | `python -m pytest` from the repo root | **664 passed, 15 skipped** |
 | Runtime | `npm test` in `apps/runtime` | **13 passed** |
 | Island | `npm test` in `apps/web/assistant` | **19 passed** |
@@ -272,7 +272,7 @@ panel driven by real LiveKit events. **F-Z06** (shared static worker key, no rot
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| Frappe L1 | `bench --site loanportal.local run-tests --app loan_advisory_portal` (inside `loanrangers-backend-1`) | `Ran 154 tests in 46.797s` — **OK** |
+| Frappe L1 | `bench --site loanportal.local run-tests --app loan_advisory_portal` (inside `saral-backend-1`) | `Ran 154 tests in 46.797s` — **OK** |
 | Host | `python -m pytest` from the repo root | **664 passed, 15 skipped** |
 | Runtime | `npm test` in `apps/runtime` | **13 passed** |
 | Island | `npm test` in `apps/web/assistant` | **33 passed** |
@@ -303,7 +303,7 @@ tests and the current run.
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| Frappe L1 | `bench --site loanportal.local run-tests --app loan_advisory_portal` (inside `loanrangers-backend-1`) | `Ran 162 tests in 51.934s` — **OK** |
+| Frappe L1 | `bench --site loanportal.local run-tests --app loan_advisory_portal` (inside `saral-backend-1`) | `Ran 162 tests in 51.934s` — **OK** |
 | Lint | `ruff check apps/loan_advisory_portal` | **All checks passed!** |
 
 The host, runtime and island suites were not changed by D and were not rerun in this phase; their
@@ -340,7 +340,7 @@ Each change is listed in the measurement record.
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| Frappe L1 | `bench --site loanportal.local run-tests --app loan_advisory_portal` (inside `loanrangers-backend-1`) | `Ran 162 tests in 44.794s` — **OK** |
+| Frappe L1 | `bench --site loanportal.local run-tests --app loan_advisory_portal` (inside `saral-backend-1`) | `Ran 162 tests in 44.794s` — **OK** |
 | Island | `npm test` in `apps/web/assistant` | **33 passed** (6 files) |
 | Island typecheck | `npm run typecheck` | clean |
 | Island build | `npm run build` | rebuilt and synced the committed `public/js/assistant/` output |

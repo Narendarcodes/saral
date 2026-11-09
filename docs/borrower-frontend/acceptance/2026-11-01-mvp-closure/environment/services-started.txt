@@ -6,7 +6,7 @@ before the run.
 
 | Service | Where it runs | Identifier | Started (UTC) |
 | --- | --- | --- | --- |
-| Frappe dev server `:8001` | inside `loanrangers-backend-1` (`bench --site loanportal.local serve --port 8001`, log `/tmp/serve-8001-owner-closure.log`) | container pids 16770 (bench) / 16775 (werkzeug) | 2026-11-01T17:36Z |
+| Frappe dev server `:8001` | inside `saral-backend-1` (`bench --site loanportal.local serve --port 8001`, log `/tmp/serve-8001-owner-closure.log`) | container pids 16770 (bench) / 16775 (werkzeug) | 2026-11-01T17:36Z |
 | Test front door `127.0.0.1:8081` | the existing container `loanportal-acceptance-proxy` (`4bd676ee8025`, nginx:alpine, `tests/e2e/nginx.loanportal.conf`), **restarted, not recreated** — it was left stopped-but-present by the previous run and carries no `--rm` | host forwarding pid 23420 (Docker Desktop, also fronts `:3000`) | 2026-11-01T17:36Z |
 | CopilotKit runtime `127.0.0.1:4200` | host, `apps/runtime/dist/index.js`, upstream pointed at the stub | host pid **40340** | 2026-11-01T17:38Z |
 | Deterministic AG-UI stub `127.0.0.1:8096` | host, `tests/e2e/agui_stub.cjs` with `STUB_APPLICATION=ACC-LOAP-2026-00022` | host pid **39744** | 2026-11-01T17:38Z |
@@ -29,7 +29,7 @@ STUB_APPLICATION=ACC-LOAP-2026-00022 node tests/e2e/agui_stub.cjs
   and no GPU memory is held;
 - the RAG index and anything else that allocates GPU memory.
 
-Everything already running was left alone: the nine `loanrangers-*` bench containers, the six
+Everything already running was left alone: the nine `saral-*` bench containers, the six
 `loan-advisory-langfuse-*` containers, `:8080` and `:3000`.
 
 ## Health checks at bring-up

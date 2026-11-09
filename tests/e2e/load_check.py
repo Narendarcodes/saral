@@ -32,7 +32,7 @@ import urllib3
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "infra" / "proxy" / "nginx.conf.template"
 OUT_DIR = ROOT / "tests" / "e2e" / "out" / "phase-f"
-BACKEND = "loanrangers-backend-1"
+BACKEND = "saral-backend-1"
 NETWORK = "frappe_docker_default"
 PROXY = "loanportal-load-proxy"
 SITE = "loanportal.local"

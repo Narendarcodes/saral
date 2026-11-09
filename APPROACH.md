@@ -13,7 +13,7 @@ Demo logins and test applicants: [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md).
 | **Loan Officer** | Work the cases the rules send to a person | The built-in Frappe desk: a manual-review queue with internal reasons, Approve / Decline / Request info, audit trail (ADR-0008) |
 | **Lender / reviewer** | Trust that the explanation matches the decision | ZEN is the only decision authority; every decision is stored as evidence; the agent has no write path; evaluations and limitations are published with their bias disclosed |
 
-The brief (VaaniLabs.AI capstone): explain a rejection in plain language with a concrete, legitimate path to reapply,
+The brief (CBIT capstone): explain a rejection in plain language with a concrete, legitimate path to reapply,
 and evaluate it honestly. Saral never decides, never shows a cut-off, and never presents Bajaj Finance's public
 numbers as the applicant's own case.
 
@@ -57,7 +57,7 @@ above (for example the LLM, or the voice-first scope), the sections above are cu
 
 ## 1. Problem statement
 
-The VaaniLabs.AI capstone brief: a personal-loan applicant who is rejected usually gets little more than "declined".
+The CBIT capstone brief: a personal-loan applicant who is rejected usually gets little more than "declined".
 Build an agent that **explains the rejection in plain language and gives a concrete, legitimate path to reapply**, and
 evaluate it honestly: correctness, failure cases, limitations and metrics. Follow-up asks from the project review: adapt
 explanations to the applicant's background and loan literacy, give concrete improvement tasks, prefer voice (text is
@@ -77,7 +77,7 @@ reapplications are hypotheses until measured with a lender.
 | **Personal loans, rejected applicants only** | Narrowest population where an explanation is owed and testable |
 | **Explain, never decide** | Decisions must be reproducible and auditable; an LLM is neither. ZEN decides, the agent reads the stored evidence |
 | **Synthetic applicants and a synthetic `synthetic-v1` policy** | No public dataset has Indian lender decisions with reason codes (PR #1). LendingClub is used as a US public proxy only, UCI German Credit as a fallback |
-| **Bajaj Finance as a public reference lender, not a partner** | VaaniLabs gave a problem statement, not a lender relationship. A real NBFC's public documents make the policy RAG testable; every Bajaj source carries the relationship label |
+| **Bajaj Finance as a public reference lender, not a partner** | The brief was a problem statement, not a lender relationship. A real NBFC's public documents make the policy RAG testable; every Bajaj source carries the relationship label |
 | **Lender-neutral by configuration** | The lender is a profile in `config/lender_profiles/` (`bajaj_finance`, `generic_bank`, `generic_nbfc`, `synthetic_prototype`). RBI texts are tagged by entity type, because the rules differ (below) |
 | **Data → conventional workflow → policy RAG → agent → voice** | Each layer is tested before the next consumes it; the agent never compensates for an untested decision core |
 | **One LangGraph graph, not multi-agent** | The task is a controlled workflow with a few tools; no evaluation showed a need for multiple agents |
