@@ -385,8 +385,23 @@ or logs. DTMF must reach LiveKit as RFC 4733 `telephone-event` from the SIP trun
 synthetic data only (4 digits). Details:
 [docs/architecture/livekit-integration.md](docs/architecture/livekit-integration.md#phone-callers-keypad-verification-sip--dtmf).
 
+**Three ways to talk to Saral.** (1) Text chat in the portal assistant (no LiveKit). (2) Voice mode, the in-app
+ChatGPT-style voice panel, authorised by a Frappe `Voice Session` row. (3) A phone call, either to the real number
+(+1 484 295 0295, LiveKit SIP) or from the **web phone** at `/borrower/call`: a phone-call screen in the browser
+(keypad, timer, mute, hang up) that joins LiveKit over WebRTC and runs the same flow as the real number. Its caller ID
+is the borrower's profile number, set by Frappe in the LiveKit token as a server-only participant attribute (the
+browser never sends a number), its room is a fresh `webcall-...`, and keypad presses go out as `publishDtmf`, which the
+worker receives as the same `sip_dtmf_received` event as SIP calls. The three are isolated by separate rooms per
+session/call, separate authorisation (portal login / Voice Session row / keypad) and an explicit routing precedence
+in the worker (`apps/voice/call_routing.py`); they share the advisory server, and tone state is cached per call.
+Details: [docs/architecture/livekit-integration.md](docs/architecture/livekit-integration.md#three-ways-to-talk-to-saral).
+The microphone needs `https://` or `localhost`: to try the web phone from a phone, serve the portal over HTTPS (for
+example `tailscale serve`), not a plain-HTTP Wi-Fi address.
+
 ```bash
 CALLER_VERIFY_HMAC_KEY=$(openssl rand -hex 32) python scripts/voice/seed_caller_directory.py --out /srv/saral/caller_directory.json
+# web phone: put the demo borrower's profile number on their applicant (repeatable)
+#   ... seed_caller_directory.py --out ... --phone CUS-TEST-001=+919876500001
 # re-render the auth clips after changing any line in caller_verification.PROMPT (unchanged lines are skipped)
 GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py [--locale en-IN] [--force] [--only menu,digit_4]
 ```

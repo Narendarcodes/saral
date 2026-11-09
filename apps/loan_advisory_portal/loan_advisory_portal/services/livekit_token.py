@@ -42,7 +42,19 @@ def configuration() -> dict:
 	return config
 
 
-def create_token(*, api_key: str, api_secret: str, identity: str, name: str, room: str, metadata: dict) -> str:
+def create_token(
+	*,
+	api_key: str,
+	api_secret: str,
+	identity: str,
+	name: str,
+	room: str,
+	metadata: dict,
+	attributes: dict | None = None,
+) -> str:
+	"""A join token for one room. `attributes` (web phone only) become the participant's LiveKit attributes; they are
+	server-set because the token also denies `canUpdateOwnMetadata`, so the browser cannot rewrite them. Without
+	`attributes` the token is exactly the voice-mode token."""
 	now = int(time.time())
 	header = {"alg": "HS256", "typ": "JWT"}
 	payload = {
@@ -62,6 +74,9 @@ def create_token(*, api_key: str, api_secret: str, identity: str, name: str, roo
 		},
 		"metadata": json.dumps(metadata, separators=(",", ":"), sort_keys=True),
 	}
+	if attributes:
+		payload["attributes"] = {str(k): str(v) for k, v in attributes.items()}
+		payload["video"]["canUpdateOwnMetadata"] = False
 	signing_input = f"{_encode(header)}.{_encode(payload)}"
 	signature = hmac.new(api_secret.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256).digest()
 	return f"{signing_input}.{_b64(signature)}"

@@ -33,14 +33,21 @@ APPLICANTS = ROOT / "data" / "synthetic" / "applicants.json"
 DEMO_LANGUAGES = LANGUAGES  # dealt in order: en-IN, hi-IN, te-IN, ta-IN, ...
 
 
-def demo_entries(seed: int = 20261106, applicants_path: Path = APPLICANTS, languages: dict | None = None) -> list[dict]:
+def demo_entries(seed: int = 20261106, applicants_path: Path = APPLICANTS, languages: dict | None = None,
+                 phones: dict | None = None) -> list[dict]:
+    """`phones` (APPLICANT_ID -> number) replaces an applicant's synthetic number, e.g. with the number on the demo
+    borrower's portal profile so the web phone (/borrower/call), whose caller ID is that profile number, finds it. The
+    RNG draws stay the same, so every other applicant keeps its number and digits."""
     rng = random.Random(seed)
     cases = json.loads(applicants_path.read_text(encoding="utf-8"))["cases"]
-    languages = languages or {}
-    return [{"phone": synthetic_phone(rng), "applicant_id": c["applicant_id"], "application_id": c["application_id"],
-             "application_last4": f"{rng.randint(0, 9999):04d}",
-             "language": languages.get(c["applicant_id"], DEMO_LANGUAGES[i % len(DEMO_LANGUAGES)])}
-            for i, c in enumerate(cases)]
+    languages, phones = languages or {}, phones or {}
+    out = []
+    for i, c in enumerate(cases):
+        phone, last4 = synthetic_phone(rng), f"{rng.randint(0, 9999):04d}"
+        out.append({"phone": phones.get(c["applicant_id"], phone), "applicant_id": c["applicant_id"],
+                    "application_id": c["application_id"], "application_last4": last4,
+                    "language": languages.get(c["applicant_id"], DEMO_LANGUAGES[i % len(DEMO_LANGUAGES)])})
+    return out
 
 
 def _language_overrides(pairs: list[str]) -> dict:
@@ -53,12 +60,25 @@ def _language_overrides(pairs: list[str]) -> dict:
     return out
 
 
+def _phone_overrides(pairs: list[str]) -> dict:
+    out = {}
+    for pair in pairs or []:
+        applicant, _, number = pair.partition("=")
+        if not applicant or not number.strip():
+            raise ValueError("--phone wants APPLICANT_ID=NUMBER, e.g. CUS-TEST-001=+919876500001")
+        out[applicant] = number.strip()
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", required=True, help="where to write the hashed directory (JSON)")
     ap.add_argument("--seed", type=int, default=20261106)
     ap.add_argument("--language", action="append", default=[], metavar="APPLICANT_ID=CODE",
                     help="the language one applicant's call opens in (repeatable)")
+    ap.add_argument("--phone", action="append", default=[], metavar="APPLICANT_ID=NUMBER",
+                    help="use this number for one applicant (repeatable), e.g. the demo borrower's profile number "
+                         "for the web phone")
     ap.add_argument("--show-demo-values", action="store_true", help="print synthetic phones and digits to stdout")
     a = ap.parse_args(argv)
     key = load_key(os.environ)
@@ -67,10 +87,11 @@ def main(argv=None) -> int:
         return 2
     try:
         overrides = _language_overrides(a.language)
+        phones = _phone_overrides(a.phone)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
-    entries = demo_entries(a.seed, languages=overrides)
+    entries = demo_entries(a.seed, languages=overrides, phones=phones)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(build_seed(key, entries), indent=1) + "\n", encoding="utf-8")
