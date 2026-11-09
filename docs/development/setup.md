@@ -26,8 +26,8 @@ The container image is `loanrangers-frappe:16`: frappe + erpnext + lending, and 
 ## 0. Clone
 
 ```bash
-git clone https://github.com/Narendarcodes/Load-Advisory-Agent.git
-cd Load-Advisory-Agent
+git clone https://github.com/Narendarcodes/saral.git
+cd saral
 git checkout main
 ```
 
@@ -112,7 +112,7 @@ about 20 minutes):
 ```bash
 git clone https://github.com/frappe/frappe_docker.git
 cd frappe_docker && git checkout e08b50c          # the pin this project was built against
-cp ../Load-Advisory-Agent/infra/frappe/apps.json .
+cp ../saral/infra/frappe/apps.json .
 docker build --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
   --build-arg=FRAPPE_BRANCH=version-16 \
   --secret=id=apps_json,src=apps.json \

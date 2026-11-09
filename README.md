@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Narendarcodes/Load-Advisory-Agent/actions/workflows/ci.yml"><img src="https://github.com/Narendarcodes/Load-Advisory-Agent/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/Narendarcodes/saral/actions/workflows/ci.yml"><img src="https://github.com/Narendarcodes/saral/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/python-3.14-3776AB?logo=python&logoColor=white" alt="Python 3.14">
   <img src="https://img.shields.io/badge/Frappe-16%20%2B%20Lending-0089FF" alt="Frappe 16 + Lending">
   <img src="https://img.shields.io/badge/data-synthetic%20only-E8743B" alt="Synthetic data only">
@@ -135,8 +135,8 @@ Test logins (generated at run time, never committed) and one synthetic applicant
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/Narendarcodes/Load-Advisory-Agent.git
-cd Load-Advisory-Agent
+git clone https://github.com/Narendarcodes/saral.git
+cd saral
 python -m venv .venv
 # Windows (PowerShell):  .venv\Scripts\Activate.ps1      Linux / macOS:  source .venv/bin/activate
 python -m pip install --upgrade pip
