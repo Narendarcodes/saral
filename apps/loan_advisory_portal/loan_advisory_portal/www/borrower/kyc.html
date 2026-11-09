@@ -13,10 +13,7 @@
 </div>
 
 {% if boot.get("demo") %}
-<div class="alert alert--warn" role="note">
-	<strong>Preview mode <span class="demo-flag">Demo</span></strong>
-	<span>No identity document is checked, no OTP is sent and nothing you type leaves this page. Use sample values, not your real numbers.</span>
-</div>
+<p class="preview-bar mt" role="note"><strong>Preview mode:</strong> nothing is checked or sent, so use sample values, not your real numbers.</p>
 {% else %}
 <div class="alert alert--info" role="note">
 	<strong>Online identity checks are not open yet</strong>
