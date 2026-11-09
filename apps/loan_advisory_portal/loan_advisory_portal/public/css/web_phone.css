@@ -1,0 +1,301 @@
+/* Web phone (/borrower/call): a phone-call screen built on the portal tokens (portal.css :root).
+   Mobile first; on a wide or 16:9 screen the "phone" is a centred card that fits the viewport height. */
+
+.webphone {
+	display: flex;
+	justify-content: center;
+	padding: var(--s4) 0;
+}
+
+.webphone__screen {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--s3);
+	width: 100%;
+	max-width: 400px;
+	min-height: min(760px, calc(100dvh - 160px));
+	padding: var(--s6) var(--s5) var(--s5);
+	border: 1px solid var(--line);
+	border-radius: 28px;
+	background: linear-gradient(180deg, var(--peach-soft) 0%, var(--card) 38%);
+	color: var(--ink);
+	box-shadow: var(--shadow);
+}
+
+.webphone__head {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--s1);
+	text-align: center;
+}
+
+.webphone__avatar {
+	width: 88px;
+	height: 88px;
+	padding: 14px;
+	border-radius: 50%;
+	background: var(--card);
+	border: 1px solid var(--line);
+}
+
+.webphone__screen[data-state="ringing"] .webphone__avatar,
+.webphone__screen[data-state="connecting"] .webphone__avatar {
+	animation: webphone-pulse 1.4s var(--ease-out) infinite;
+}
+
+@keyframes webphone-pulse {
+	0% { box-shadow: 0 0 0 0 rgb(254 125 107 / 45%); }
+	100% { box-shadow: 0 0 0 22px rgb(254 125 107 / 0%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.webphone__screen .webphone__avatar { animation: none !important; }
+}
+
+.webphone__name {
+	margin: var(--s2) 0 0;
+	font-family: var(--font-display);
+	font-size: 1.75rem;
+	font-weight: 700;
+}
+
+.webphone__status {
+	margin: 0;
+	color: var(--ink-2);
+	font-weight: 600;
+}
+
+.webphone__timer {
+	margin: 0;
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	color: var(--muted);
+	visibility: hidden;
+}
+
+.webphone__screen[data-state="connected"] .webphone__timer,
+.webphone__screen[data-state="ended"] .webphone__timer {
+	visibility: visible;
+}
+
+.webphone__from {
+	margin: 0;
+	color: var(--muted);
+}
+
+.webphone__number {
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.webphone__digits {
+	min-height: 1.6em;
+	margin: 0;
+	font-size: 1.4rem;
+	letter-spacing: 0.3em;
+	color: var(--ink-2);
+}
+
+.webphone__keypad {
+	display: grid;
+	grid-template-columns: repeat(3, 72px);
+	gap: var(--s3) var(--s5);
+	justify-content: center;
+}
+
+.webphone__keypad[hidden] {
+	display: none;
+}
+
+.webphone__key {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	width: 72px;
+	height: 72px;
+	border: 1px solid var(--line);
+	border-radius: 50%;
+	background: var(--paper);
+	color: var(--ink);
+	font: inherit;
+	cursor: pointer;
+	transition: background var(--dur) var(--ease-out), transform 80ms;
+	touch-action: manipulation;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.webphone__key:active:not(:disabled),
+.webphone__key[data-pressed] {
+	background: var(--line);
+	transform: scale(0.96);
+}
+
+.webphone__key:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.webphone__key:focus-visible,
+.webphone__round:focus-visible,
+.webphone__call:focus-visible,
+.webphone__hangup:focus-visible {
+	outline: none;
+	box-shadow: var(--ring);
+}
+
+.webphone__keydigit {
+	font-family: var(--font-display);
+	font-size: 1.7rem;
+	font-weight: 500;
+	line-height: 1;
+}
+
+.webphone__keyletters {
+	min-height: 0.9em;
+	font-size: 0.62rem;
+	font-weight: 700;
+	letter-spacing: 0.14em;
+	color: var(--muted);
+}
+
+.webphone__controls {
+	display: flex;
+	gap: var(--s5);
+	justify-content: center;
+	margin-top: var(--s2);
+}
+
+.webphone__round {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--s1);
+	width: 72px;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--ink-2);
+	font: inherit;
+	font-size: 0.78rem;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.webphone__round svg {
+	box-sizing: content-box;
+	padding: 14px;
+	border: 1px solid var(--line);
+	border-radius: 50%;
+	background: var(--paper);
+}
+
+.webphone__round[aria-pressed="true"] svg {
+	background: var(--ink);
+	border-color: var(--ink);
+	color: var(--paper);
+}
+
+#webphone-mute[aria-pressed="false"] svg,
+#webphone-speaker[aria-pressed="false"] svg {
+	background: var(--paper);
+	color: var(--ink-2);
+}
+
+.webphone__round:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.webphone__dial {
+	display: flex;
+	justify-content: center;
+	margin-top: auto;
+	padding-top: var(--s4);
+}
+
+.webphone__call,
+.webphone__hangup {
+	display: grid;
+	place-items: center;
+	width: 76px;
+	height: 76px;
+	border: 0;
+	border-radius: 50%;
+	color: #fff;
+	cursor: pointer;
+	touch-action: manipulation;
+}
+
+/* White on these fills is above 4.5:1 (unlike white on coral, which the portal never uses). */
+.webphone__call {
+	background: var(--ok);
+}
+
+.webphone__hangup {
+	background: var(--bad);
+}
+
+.webphone__call:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
+
+.webphone__call[hidden],
+.webphone__hangup[hidden] {
+	display: none;
+}
+
+.webphone__hint,
+.webphone__real {
+	margin: 0;
+	text-align: center;
+	color: var(--muted);
+}
+
+.webphone__notice {
+	width: 100%;
+	margin-top: var(--s4);
+}
+
+/* Short, wide viewports (a laptop at 16:9): keep the whole phone on screen. */
+@media (max-height: 820px) and (min-width: 768px) {
+	.webphone__screen {
+		min-height: 0;
+		padding-top: var(--s5);
+		gap: var(--s2);
+	}
+
+	.webphone__avatar {
+		width: 64px;
+		height: 64px;
+		padding: 10px;
+	}
+
+	.webphone__key {
+		width: 60px;
+		height: 60px;
+	}
+
+	.webphone__keypad {
+		grid-template-columns: repeat(3, 60px);
+		gap: var(--s2) var(--s5);
+	}
+}
+
+@media (max-width: 420px) {
+	.webphone {
+		padding: 0;
+	}
+
+	.webphone__screen {
+		border-radius: 20px;
+		padding: var(--s5) var(--s3) var(--s4);
+	}
+
+	.webphone__keypad {
+		gap: var(--s3) var(--s4);
+	}
+}

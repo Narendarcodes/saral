@@ -439,3 +439,28 @@ def dtmf_handler(caller_identity: str, verifier: KeypadCall | None):
             digit = "0123456789*#"[code] if isinstance(code, int) and 0 <= code <= 11 else ""
         verifier.press(digit)
     return _on
+
+
+DTMF_TOPIC = "dtmf"
+KEYPAD_KEYS = frozenset("0123456789*#")
+
+
+def dtmf_data_handler(caller_identity: str, verifier: KeypadCall | None):
+    """Fallback keypad path for the portal's WEB PHONE only: a LiveKit `data_received` listener for packets on topic
+    "dtmf" carrying {"digit": "<one of 0-9 * #>"}, from the web-phone participant itself. Used when a site sets the
+    browser to send keypad presses as data instead of `publishDtmf` (which already arrives as `sip_dtmf_received`).
+    The worker registers it only for web-phone calls, never for SIP or voice mode. Anything else (another
+    participant, another topic, a malformed body, more than one key) is dropped; nothing is logged."""
+    def _on(packet) -> None:
+        p = getattr(packet, "participant", None)
+        if verifier is None or getattr(packet, "topic", None) != DTMF_TOPIC or p is None \
+                or getattr(p, "identity", None) != caller_identity:
+            return
+        try:
+            body = json.loads(bytes(getattr(packet, "data", b"") or b"")[:64].decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, TypeError):
+            return
+        digit = body.get("digit") if isinstance(body, dict) else None
+        if isinstance(digit, str) and digit in KEYPAD_KEYS:
+            verifier.press(digit)
+    return _on
