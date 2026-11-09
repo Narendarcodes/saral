@@ -8,7 +8,7 @@ no-proxy) + `03-start-setup.md`. No third-party repos, no upstream modifications
 
 `docker build --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe
 --build-arg=FRAPPE_BRANCH=version-16 --secret=id=apps_json,src=apps.json
---tag=loanrangers-frappe:16 --file=images/layered/Containerfile .`
+--tag=saral-frappe:16 --file=images/layered/Containerfile .`
 with `apps.json` = erpnext `version-16` + lending `version-16`.
 `pwd.yml` demo was rejected (cannot install custom apps, per official docs).
 
@@ -16,7 +16,7 @@ with `apps.json` = erpnext `version-16` + lending `version-16`.
 
 frappe 16.51.0 · erpnext 16.50.0 · lending 16.6.1.
 
-## Stack (`loanrangers.yml` = compose.yaml + mariadb + redis + noproxy overrides)
+## Stack (`saral.yml` = compose.yaml + mariadb + redis + noproxy overrides)
 
 mariadb:11.8, redis:8.6-alpine, backend/frontend/workers/scheduler/websocket.
 Site `p1loan.local` (`FRAPPE_SITE_NAME_HEADER=p1loan.local`, port 8080):

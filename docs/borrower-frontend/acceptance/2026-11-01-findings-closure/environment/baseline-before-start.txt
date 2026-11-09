@@ -10,15 +10,15 @@ loan-advisory-langfuse-postgres-1	Up 5 hours (healthy)	5432/tcp
 loan-advisory-langfuse-redis-1	Up 5 hours (healthy)	6379/tcp
 loan-advisory-langfuse-clickhouse-1	Up 5 hours (healthy)	8123/tcp, 9000/tcp, 9009/tcp
 loan-advisory-langfuse-minio-1	Up 5 hours (healthy)	
-loanrangers-frontend-1	Up 5 hours	0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
-loanrangers-scheduler-1	Up 5 hours	
-loanrangers-queue-long-1	Up 5 hours	
-loanrangers-websocket-1	Up 5 hours	
-loanrangers-queue-short-1	Up 5 hours	
-loanrangers-backend-1	Up 5 hours	
-loanrangers-redis-queue-1	Up 5 hours	6379/tcp
-loanrangers-redis-cache-1	Up 5 hours	6379/tcp
-loanrangers-db-1	Up 5 hours (healthy)	3306/tcp
+saral-frontend-1	Up 5 hours	0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+saral-scheduler-1	Up 5 hours	
+saral-queue-long-1	Up 5 hours	
+saral-websocket-1	Up 5 hours	
+saral-queue-short-1	Up 5 hours	
+saral-backend-1	Up 5 hours	
+saral-redis-queue-1	Up 5 hours	6379/tcp
+saral-redis-cache-1	Up 5 hours	6379/tcp
+saral-db-1	Up 5 hours (healthy)	3306/tcp
 
 ## docker ps -a (non-running, for context)
 cop-frontend	Exited (0) 6 weeks ago

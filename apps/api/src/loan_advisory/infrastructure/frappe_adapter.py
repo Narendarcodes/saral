@@ -27,7 +27,7 @@ from decision_engine.schemas.underwriting import UnderwritingInput
 
 DATA_DIR = repo_root() / "data" / "synthetic"
 DOCTYPE = "Loan Application"
-DEFAULT_COMPANY = "Loan Rangers Test NBFC"   # ids seeded by infra/frappe/bootstrap/seed_site.py
+DEFAULT_COMPANY = "Saral Test NBFC"   # ids seeded by infra/frappe/bootstrap/seed_site.py
 DEFAULT_PRODUCT = "SYN-PERSONAL-001"
 LIST_FIELDS = ("name", "loan_amount", "repayment_periods", "custom_lifecycle_state", "status",
                "creation", "modified", "custom_loan_purpose")

@@ -81,10 +81,10 @@ Site: `http://127.0.0.1:8081`. Sign in as a seeded acceptance borrower. The cred
 were deleted when the run finished, so seed a fresh set first — never check them into a document:
 
 ```bash
-docker exec loanrangers-backend-1 bench --site loanportal.local execute \
+docker exec saral-backend-1 bench --site loanportal.local execute \
   loan_advisory_portal.tests.e2e_seed.seed --kwargs '{"tag": "sr1"}'
-docker cp loanrangers-backend-1:/tmp/loanportal-e2e/sr1.json "$TEMP/loanportal-e2e/sr1.json"
-docker exec loanrangers-backend-1 rm -f /tmp/loanportal-e2e/sr1.json
+docker cp saral-backend-1:/tmp/loanportal-e2e/sr1.json "$TEMP/loanportal-e2e/sr1.json"
+docker exec saral-backend-1 rm -f /tmp/loanportal-e2e/sr1.json
 ```
 
 That creates `sr1-borrower@example.invalid` and `sr1-other@example.invalid`, plus two applications whose
@@ -95,7 +95,7 @@ file, and delete the file when the NVDA session is over. The journeys below were
 application id wherever one appears. Afterwards, remove the fixtures:
 
 ```bash
-docker exec loanrangers-backend-1 bench --site loanportal.local execute \
+docker exec saral-backend-1 bench --site loanportal.local execute \
   loan_advisory_portal.tests.e2e_seed.teardown --kwargs '{"tag": "sr1"}'
 ```
 

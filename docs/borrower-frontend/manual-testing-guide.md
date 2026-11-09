@@ -55,7 +55,7 @@ you do not need those.
 If the account is locked or you do not know the password, the person who set up the site resets it:
 
 ```
-docker exec loanrangers-backend-1 bash -lc \
+docker exec saral-backend-1 bash -lc \
   'cd /home/frappe/frappe-bench && bench --site loanportal.local set-password <email> --user <email>'
 ```
 
@@ -570,7 +570,7 @@ volumes, or dropping the site. They destroy other people's evidence.
 ## 8. Shutting this environment down
 
 Everything started **for this testing round** is listed here, with the command that stops exactly it.
-The permanent stack (`loanrangers-*` and `loan-advisory-langfuse-*` containers) is **not** in this
+The permanent stack (`saral-*` and `loan-advisory-langfuse-*` containers) is **not** in this
 list and should keep running - it was there before this round.
 
 Run the commands in the order shown (top-down), in Git Bash.
@@ -595,17 +595,17 @@ netstat -ano | grep ':8095' | grep LISTENING
 **4 - Frappe dev server:**
 
 ```bash
-docker exec loanrangers-backend-1 bash -lc \
+docker exec saral-backend-1 bash -lc \
   'for f in /proc/[0-9]*/cmdline; do c=$(tr "\0" " " < $f 2>/dev/null); \
    case "$c" in *8001*) echo "${f#/proc/}";; esac; done'
-docker exec loanrangers-backend-1 kill <those pids>     # do not kill the whole container
+docker exec saral-backend-1 kill <those pids>     # do not kill the whole container
 ```
 
 **6 - remove the two test accounts** (reversible choice; leave this until you truly need the site
 clean). It deletes the users, applications, files, evidence and conversations tagged `manualqa1`:
 
 ```bash
-docker exec loanrangers-backend-1 bash -lc \
+docker exec saral-backend-1 bash -lc \
   'cd /home/frappe/frappe-bench && bench --site loanportal.local execute \
    loan_advisory_portal.tests.e2e_seed.teardown --kwargs "{\"tag\": \"manualqa1\"}"'
 ```

@@ -17,7 +17,7 @@ Raw captures: [`baseline/worktree-and-environment.txt`](baseline/worktree-and-en
   (`thread.ts`, `thread.test.ts`, `test_transcript_contract.py`, `island.test.tsx`,
   `thread_continuity_e2e.cjs`, `write_guard.cjs`, `write_guard_proof.cjs`) and nothing was removed, so
   **no other workstream touched this worktree in between**.
-- Fifteen permanent containers `Up 7 hours`: nine `loanrangers-*`, six `loan-advisory-langfuse-*`
+- Fifteen permanent containers `Up 7 hours`: nine `saral-*`, six `loan-advisory-langfuse-*`
   (the Langfuse ones healthy). `:8080` and `127.0.0.1:3000` listening; `:8001`, `:8081`, `:4200`,
   `:8095`, `:8096` free. GPU: no compute processes.
 - Site verified from `bench --site loanportal.local show-config`: `db_name` `_21ddc3370f18f30e`,
@@ -28,7 +28,7 @@ Raw captures: [`baseline/worktree-and-environment.txt`](baseline/worktree-and-en
 
 | Service | Where | Identifier |
 | --- | --- | --- |
-| Frappe dev server `:8001` | inside `loanrangers-backend-1` | container pids 16770 (bench) / 16988 (werkzeug) |
+| Frappe dev server `:8001` | inside `saral-backend-1` | container pids 16770 (bench) / 16988 (werkzeug) |
 | Acceptance front door `127.0.0.1:8081` | the **existing** container `loanportal-acceptance-proxy` (`4bd676ee8025`), restarted rather than recreated | host forwarding pid 23420 (Docker Desktop) |
 | CopilotKit runtime `127.0.0.1:4200` | host, `apps/runtime/dist/index.js` | host pid 40340 |
 | AG-UI stub `127.0.0.1:8096` | host, `tests/e2e/agui_stub.cjs` | host pids 39744, then 44704 after it was restarted to point at the new fixture |

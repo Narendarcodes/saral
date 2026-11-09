@@ -24,7 +24,7 @@ into the process environment does not exist for it.
 | `FRAPPE_API_KEY`, `FRAPPE_API_SECRET` | same | none | as above. Use the `reader` service account from the seed |
 | `EVIDENCE_FRAPPE_URL` | evidence sink | falls back to `FRAPPE_URL` | the sink refuses to start without its own credentials |
 | `EVIDENCE_FRAPPE_API_KEY` / `_SECRET` | evidence ingestion | none | the sink never falls back to the read credential; it exits |
-| `FRAPPE_LOAN_COMPANY`, `FRAPPE_LOAN_PRODUCT` | application creation | `Loan Rangers Test NBFC` / `SYN-PERSONAL-001` | silently reads nothing, because the seeded fixtures use `LAP Test NBFC` / `LAP-TEST-001`. Set both whenever you seed with `e2e_seed` |
+| `FRAPPE_LOAN_COMPANY`, `FRAPPE_LOAN_PRODUCT` | application creation | `Saral Test NBFC` / `SYN-PERSONAL-001` | silently reads nothing, because the seeded fixtures use `LAP Test NBFC` / `LAP-TEST-001`. Set both whenever you seed with `e2e_seed` |
 | `SARAL_LLM_PROVIDER` / `LLM_PROVIDER` | `agent/llm.py` | `omniroute` (since 2026-11-04 13:42 IST; River returned 402) | must be `omniroute`, `river` or `groq`; anything else is a config error and the service must not start |
 | `SARAL_LLM_MODEL` | `agent/llm.py` | `antigravity/gemini-3.8-flash` on OmniRoute, `deepseek-ai/DeepSeek-V4.1-Flash` on River | wins over `LLM_MODEL`; required for groq |
 | `SARAL_LLM_BASE_URL` | `agent/llm.py` | provider default | wins over `RIVER_BASE_URL` / `OMNIROUTE_BASE_URL` / `LLM_BASE` |

@@ -82,7 +82,7 @@ Every write is itemised with its mechanism in [`environment-lifecycle.md`](envir
 | NVDA 2026.3 | `C:\Program Files\NVDA` (installed by `--install-silent` before the revised scope arrived) | **present**; not running; no logon entry; removal is an owner decision — see [`environment-lifecycle.md`](environment-lifecycle.md) §4 |
 | NVDA launcher download | `%TEMP%\nvda-2026.3\nvda_2026.3.exe` | kept, hash and signature recorded |
 | Fixture credentials | `%TEMP%\loanportal-e2e\` | deleted, directory removed |
-| Container-side scripts | `loanrangers-backend-1:/tmp/*.py` | this task's own copies; the app files deployed by `docker cp` match the repository |
+| Container-side scripts | `saral-backend-1:/tmp/*.py` | this task's own copies; the app files deployed by `docker cp` match the repository |
 
 ## 8. Files deleted
 

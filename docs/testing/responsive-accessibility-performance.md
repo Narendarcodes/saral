@@ -9,7 +9,7 @@ document; no historical result is reused.
 
 | Piece | Value |
 | --- | --- |
-| Site | disposable `loanportal.local` in `loanrangers-backend-1` (never `p1loan.local`) |
+| Site | disposable `loanportal.local` in `saral-backend-1` (never `p1loan.local`) |
 | Front door | temporary `loanportal-e2e-proxy` nginx on `127.0.0.1:8081` (`tests/e2e/nginx.loanportal.conf`) |
 | Frappe dev server | `bench --site loanportal.local serve --port 8001` inside the backend container |
 | CopilotKit runtime | `apps/runtime`, `127.0.0.1:4200` (island renders its real shell) |

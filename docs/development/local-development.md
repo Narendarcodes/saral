@@ -8,7 +8,7 @@ Ports used here match the verified environment: `:8081` browser, `:8095` agent, 
 
 | # | Service | Command |
 | --- | --- | --- |
-| 1 | permanent stack | `docker compose -f infra/frappe/loanrangers.yml up -d --pull missing` |
+| 1 | permanent stack | `docker compose -f infra/frappe/saral.yml up -d --pull missing` |
 | 2 | Frappe dev server for the site | `docker exec <backend> bash -lc 'cd /home/frappe/frappe-bench/sites && nohup /home/frappe/frappe-bench/env/bin/python -m frappe.utils.bench_helper frappe --site <site> serve --port 8001 > /tmp/serve.log 2>&1 &'` |
 | 3 | front door | `docker run -d --name <site>-proxy --network frappe_docker_default -p 127.0.0.1:8081:8080 --add-host host.docker.internal:host-gateway -v "$PWD/tests/e2e/nginx.loanportal.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine` |
 | 4 | synthetic bureau | `.venv\Scripts\python -m synthetic_bureau.app --port 8011` (with `PYTHONPATH` including `apps/bureau/src` and `decision_engine`) |

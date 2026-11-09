@@ -13,7 +13,7 @@ the response headers and the deferred B4 checks, and restates what remains unver
 | --- | --- |
 | Front door | `infra/proxy/nginx.conf.template`, rendered by the harness and run as `nginx:alpine` **1.31.8** in a throwaway container, with a self-signed certificate for `portal.test` and a local echo upstream. Script `tests/e2e/production_proxy_check.py`; output `tests/e2e/out/phase-f/production_proxy.json`. |
 | Shared state | `redis:7-alpine` (**Redis 7.4.9**) on `127.0.0.1:6380`; every "worker" is a separate OS process running `tests/e2e/two_worker_scenario.py`. Script `tests/e2e/two_worker_check.py`; output `tests/e2e/out/phase-f/two_worker.json`. |
-| Load | The same nginx template on the `frappe_docker_default` network in front of `bench --site loanportal.local serve --port 8001` (Werkzeug, threaded) in `loanrangers-backend-1`, TLS for `loanportal.local`. Script `tests/e2e/load_check.py`; output `tests/e2e/out/phase-f/load.json`. |
+| Load | The same nginx template on the `frappe_docker_default` network in front of `bench --site loanportal.local serve --port 8001` (Werkzeug, threaded) in `saral-backend-1`, TLS for `loanportal.local`. Script `tests/e2e/load_check.py`; output `tests/e2e/out/phase-f/load.json`. |
 
 The shared site `p1loan.local` was not contacted. All ports are bound to `127.0.0.1`, the
 Redis and nginx containers are removed by the harnesses in `finally`, and the echo upstream
@@ -152,7 +152,7 @@ python -m pytest -q tests/test_production_proxy.py tests/test_shared_checkpointe
 python tests/e2e/production_proxy_check.py
 python tests/e2e/two_worker_check.py
 # load check needs bench serve on 8001 in the disposable backend:
-docker exec -d loanrangers-backend-1 bash -lc \
+docker exec -d saral-backend-1 bash -lc \
   'cd /home/frappe/frappe-bench && exec bench --site loanportal.local serve --port 8001'
 python tests/e2e/load_check.py
 ```

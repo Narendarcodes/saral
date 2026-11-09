@@ -1,15 +1,15 @@
 # Isolated second stack for testing, alongside a running one.
 #
-# Why this exists: infra/frappe/loanrangers.yml pins its volumes to fixed external names
+# Why this exists: infra/frappe/saral.yml pins its volumes to fixed external names
 # (frappe_docker_db-data, frappe_docker_sites, frappe_docker_redis-queue-data). Those names do not
-# carry the compose project prefix, so `docker compose -f loanrangers.yml -p anything up` mounts the
+# carry the compose project prefix, so `docker compose -f saral.yml -p anything up` mounts the
 # SAME data directory as the stack already running. Observed consequence: a second MariaDB started
 # against the live database, hit `Can't lock aria control file`, and the existing db container was
 # restarted under the new project. Nothing was written, but the collision is silent until it is not.
 #
 # Use this override whenever a second, disposable stack is wanted next to a running one:
 #
-#   docker compose -f infra/frappe/loanrangers.yml -f infra/frappe/loanrangers.isolated.yml \
+#   docker compose -f infra/frappe/saral.yml -f infra/frappe/saral.isolated.yml \
 #     -p reprostack up -d db redis-cache redis-queue configurator backend --pull missing
 #
 # The frontend is deliberately left out: it publishes host port 8080, which the primary stack

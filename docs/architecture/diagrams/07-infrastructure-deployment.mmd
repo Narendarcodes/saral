@@ -10,7 +10,7 @@ flowchart TB
     NGX["Reverse proxy / TLS<br/>infra/proxy/nginx.conf.template<br/>same-origin merge"]
   end
 
-  subgraph DOCKER["Docker Compose project - infra/frappe/loanrangers.yml"]
+  subgraph DOCKER["Docker Compose project - infra/frappe/saral.yml"]
     subgraph FT["Frappe frontend container"]
       Fnginx["nginx<br/>pins X-Frappe-Site-Name<br/>:8080"]
     end
