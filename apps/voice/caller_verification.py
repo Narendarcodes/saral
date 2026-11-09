@@ -4,13 +4,15 @@ A phone call arrives through LiveKit SIP. The caller ID (the SIP from-number, pa
 `sip.phoneNumber`) is looked up in a directory of synthetic applicant records. An unknown number gets no account
 information and is offered a person. A known number must then prove one factor, the one the caller picks:
 
-    "Press 1 to verify with your loan application number, or 2 with your bank account number."
+    "Press 1 for your loan application, or 2 for your bank account."
     "Enter the last 4 digits."
     "You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype."
 
 Digits come from the KEYPAD only (LiveKit `sip_dtmf_received` room events, fed in through `KeypadVerifier.press`),
-never from speech. The read-back is built from a fixed template and sent straight to TTS by the worker; the
-transcript and chat context only ever see the masked form, and nothing here logs a digit (`****`).
+never from speech. Every line before verification is a fixed text from PROMPT; the worker plays each one as a
+pre-rendered Timbre clip (auth_prompts.py, apps/voice/prompts/) and never calls the LLM or live TTS for it. The read-back
+is stitched from a "you entered" clip, one clip per digit and a "press 1 to confirm" clip; the transcript and chat
+context only ever see the masked form, and nothing here logs a digit (`****`).
 
 Each factor is stored as HMAC-SHA256(key, salt|factor|last4) with a per-record salt; the key comes from the
 environment (CALLER_VERIFY_HMAC_KEY), so the directory file holds hashes only. Three confirmed mismatches lock
@@ -53,15 +55,16 @@ VERIFIED, LOCKED, UNKNOWN_CALLER, TIMEOUT, UNAVAILABLE, NOT_REQUIRED = (
     "verified", "locked", "unknown_caller", "timeout", "unavailable", "not_required")
 
 PROMPT = {
-    "menu": "Press 1 to verify with your loan application number, or 2 with your bank account number.",
-    "menu_again": "Please press 1 for your loan application number, or 2 for your bank account number.",
+    "greeting": "Hello, this is Saral, your loan assistant.",
+    "menu": "Press 1 for your loan application, or 2 for your bank account.",
+    "menu_again": "Please press 1 for your loan application, or 2 for your bank account.",
     "enter": "Enter the last 4 digits.",
     "cleared": "Cleared. Enter the last 4 digits.",
     "retype": "Okay. Enter the last 4 digits again.",
     "confirm_again": "Press 1 to confirm or 2 to retype.",
     "nudge": "Please use your phone keypad.",
     "no_match": "Those digits don't match our records. Please try again.",
-    "verified": "Thank you, you're verified. How can I help with your loan?",
+    "verified": "Thank you, you're verified. Connecting you to Saral.",
     "locked": ("I couldn't verify you, so I can't discuss account details on this call. "
                "I can connect you to a member of our team instead."),
     "timeout": ("I didn't receive any keypresses, so I've stopped verification. I can't share account details until "
@@ -72,7 +75,10 @@ PROMPT = {
                     "I can connect you to a member of our team."),
     "needs_verification": "Before I can discuss your account, I need to verify you.",
 }
-READBACK = "You entered {spaced}. Press 1 to confirm or 2 to retype."
+READBACK_LEAD = "You entered"
+READBACK_TAIL = "Press 1 to confirm or 2 to retype."
+READBACK = READBACK_LEAD + " {spaced}. " + READBACK_TAIL
+_READBACK_SPOKEN = re.compile(r"You entered (\d), (\d), (\d), (\d)\. Press 1 to confirm or 2 to retype\.")
 
 
 def mask(_digits: str | None = None) -> str:
@@ -85,6 +91,13 @@ def readback(digits: str) -> tuple[str, str]:
     if not re.fullmatch(r"\d{%d}" % DIGITS, digits or ""):
         raise ValueError("read-back needs exactly 4 keypad digits")
     return READBACK.format(spaced=", ".join(digits)), READBACK.format(spaced=MASK)
+
+
+def readback_digits(spoken: str) -> str | None:
+    """The 4 digits of a spoken read-back built by `readback()`, or None for any other text. Lets the worker stitch the
+    read-back from digit clips without the verifier handing digits to anything else."""
+    m = _READBACK_SPOKEN.fullmatch(spoken or "")
+    return "".join(m.groups()) if m else None
 
 
 # ----------------------------------------------------------------------------------------------------- hashing

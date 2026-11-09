@@ -363,14 +363,19 @@ GNANI_API_KEY=... python scripts/voice/gnani_roundtrip.py --out /tmp/gnani_rt   
 
 **Phone callers (SIP) verify on the keypad.** A caller's number is matched to a synthetic applicant; an unknown number
 gets no account details and is offered a person. The caller then picks one factor (1: loan application number, 2: bank
-account number) and keys its last 4 digits, which are read back from a fixed template straight to TTS and checked
-against a salted HMAC-SHA256 hash. Three failures lock the call; nothing about the application is said before
+account number) and keys its last 4 digits, which are read back and checked against a salted HMAC-SHA256 hash.
+Everything before verification is **pre-recorded** Timbre v3.0 / Tarika audio (`apps/voice/prompts/en-IN/`): greeting,
+menu, enter-digits, the read-back stitched from "you entered" + one clip per digit + "press 1 to confirm", mismatch,
+retry, locked, timeout and "verified, connecting you to Saral". The auth phase never calls the LLM or live TTS; a
+missing or stale clip falls back to live TTS of the same fixed line with a warning. Three failures lock the call; nothing about the application is said before
 verification, and digits never reach the LLM, transcripts or logs. DTMF must reach LiveKit as RFC 4733
 `telephone-event` from the SIP trunk. This is demo-grade authentication (4 digits). Details:
 [docs/architecture/livekit-integration.md](docs/architecture/livekit-integration.md#phone-callers-keypad-verification-sip--dtmf).
 
 ```bash
 CALLER_VERIFY_HMAC_KEY=$(openssl rand -hex 32) python scripts/voice/seed_caller_directory.py --out /srv/saral/caller_directory.json
+# re-render the auth clips after changing any line in caller_verification.PROMPT (unchanged lines are skipped)
+GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py [--locale en-IN] [--force] [--only menu,digit_4]
 ```
 
 ## Evaluation setup and results

@@ -79,7 +79,7 @@ class FakeSession:
         return done()
 
 
-def make_agent(worker, cv, record=None, reason=None, on_say=None):
+def make_agent(worker, cv, record=None, reason=None, on_say=None, prompts=None):
     fake = FakeSession(on_say)
 
     class TestAgent(worker.AdvisorAgent):
@@ -94,7 +94,7 @@ def make_agent(worker, cv, record=None, reason=None, on_say=None):
         return {"assertion": "x"}
     gate = cv.VerifiedGate(None, exchange)
     phone = worker.PhoneCall(record, reason)
-    agent = TestAgent(gate, "en", room=None, turn=worker.Turn(), phone=phone)
+    agent = TestAgent(gate, "en", room=None, turn=worker.Turn(), phone=phone, prompts=prompts)
     if record is not None:
         phone.verifier = gate.verifier = cv.KeypadVerifier(record, KEY.encode(), speak=agent._say,
                                                            speak_private=agent._say_private, nudge_s=0.05, give_up_s=0.2)
@@ -164,7 +164,10 @@ def test_verify_caller_is_a_function_tool(worker):
     assert "verify_caller" in names
 
 
-def test_full_keypad_flow_through_the_agent_keeps_digits_out_of_chat_and_transcript(worker, cv, directory_env):
+@pytest.mark.parametrize("clips", [True, False], ids=["pre-recorded", "missing-clips-fallback"])
+def test_full_keypad_flow_through_the_agent_keeps_digits_out_of_chat_and_transcript(worker, cv, directory_env, clips,
+                                                                                   tmp_path):
+    import auth_prompts as ap
     rec, _, _ = worker.phone_lookup(PHONE, directory_env)
     script = ["1", APP4, "1"]
     holder = {}
@@ -175,15 +178,21 @@ def test_full_keypad_flow_through_the_agent_keeps_digits_out_of_chat_and_transcr
             for k in script.pop(0):
                 handler(SimpleNamespace(digit=k, code=None, participant=SimpleNamespace(identity="sip_caller")))
 
-    agent, fake, calls = make_agent(worker, cv, rec, on_say=on_say)
+    store = ap.PromptStore() if clips else ap.PromptStore(root=tmp_path)
+    agent, fake, calls = make_agent(worker, cv, rec, on_say=on_say, prompts=store)
     holder["h"] = cv.dtmf_handler("sip_caller", agent.phone.verifier)
     assert asyncio.run(agent.verify_caller()) == cv.VERIFIED and agent.auth.verified
     assert all(s["add_to_chat_ctx"] is False for s in fake.said)
     shown = " ".join(s["text"] for s in fake.said)
     assert "You entered ****." in shown and APP4 not in shown and "4, 7, 2, 9" not in shown
-    # the real digits went to TTS only, as the fixed template
-    assert fake.tts.synthesized == ["You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype."]
-    assert [s for s in fake.said if s["frames"]][0]["text"] == "You entered ****. Press 1 to confirm or 2 to retype."
+    readback = [s for s in fake.said if s["text"] == "You entered ****. Press 1 to confirm or 2 to retype."]
+    assert len(readback) == 1 and readback[0]["frames"]
+    if clips:  # every line, the read-back included, came from pre-recorded clips: live TTS was never called
+        assert fake.tts.synthesized == []
+        assert all(s["frames"] and not isinstance(s["frames"][0], str) for s in fake.said)
+    else:  # no clips: the same fixed lines go to live TTS, the real digits only as the fixed template
+        assert "You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype." in fake.tts.synthesized
+        assert cv.PROMPT["menu"] in fake.tts.synthesized
     assert agent._gate_reply() is None  # verified: turns may now reach the server
     assert asyncio.run(agent.auth.fresh()) == {"assertion": "x"} and calls == [1]
 
@@ -212,3 +221,74 @@ def test_worker_logs_no_digits_or_numbers(worker):
     src = (VOICE / "agent_worker.py").read_text(encoding="utf-8")
     for bad in ("log.info(f", "sip.phoneNumber\")}", "print("):
         assert bad not in src
+
+
+# ----------------------------------------------------------------------------------------------- pre-recorded auth phase
+async def _gate_turn(agent, text):
+    """One unverified turn through the real llm_node -> tts_node chain."""
+    async def chunks():
+        for c in await drain(agent.llm_node(user_ctx(text), [], None)):
+            yield c
+    return await drain(agent.tts_node(chunks(), None))
+
+
+def test_auth_phase_turn_plays_a_clip_and_calls_neither_the_graph_nor_tts(worker, cv, directory_env, monkeypatch):
+    import aiohttp
+    rec, _, _ = worker.phone_lookup(PHONE, directory_env)
+    agent, fake, calls = make_agent(worker, cv, rec)
+    agent.phone.verifier.locked = True
+
+    def no_http(*a, **k):
+        raise AssertionError("the advisory server (graph LLM) was called before verification")
+    monkeypatch.setattr(aiohttp, "ClientSession", no_http)
+    frames = asyncio.run(_gate_turn(agent, "why was my loan rejected"))
+    from livekit import rtc
+    assert frames and all(isinstance(f, rtc.AudioFrame) and f.sample_rate == 16000 for f in frames)
+    assert fake.tts.synthesized == [] and calls == [] and agent._http is None
+    dur = sum(f.samples_per_channel for f in frames) / 16000
+    assert abs(dur - agent.prompts.load("locked")[0].__len__() / 2 / 16000) < 0.03
+
+
+def test_auth_phase_falls_back_to_live_tts_with_a_warning(worker, cv, directory_env, tmp_path, caplog):
+    import auth_prompts as ap
+    rec, _, _ = worker.phone_lookup(PHONE, directory_env)
+    agent, fake, calls = make_agent(worker, cv, rec, prompts=ap.PromptStore(root=tmp_path))
+    agent.phone.verifier.locked = True
+    with caplog.at_level("WARNING", logger="saral.voice.prompts"):
+        frames = asyncio.run(_gate_turn(agent, "hello"))
+    assert fake.tts.synthesized == [cv.PROMPT["locked"]] and frames and calls == []
+    assert "using live TTS" in caplog.text
+
+
+def test_greeting_and_unknown_caller_lines_are_clips(worker, cv):
+    agent, fake, calls = make_agent(worker, cv, reason=cv.UNKNOWN_CALLER)
+    asyncio.run(agent._say(worker.PHONE_GREETING))
+    assert asyncio.run(agent.verify_caller()) == cv.UNKNOWN_CALLER
+    assert [s["text"] for s in fake.said] == [cv.PROMPT["greeting"], cv.PROMPT["unknown_caller"]]
+    assert fake.tts.synthesized == [] and all(s["frames"] for s in fake.said) and calls == []
+
+
+def test_mixed_rate_fallback_part_is_resampled_to_one_rate(worker, cv):
+    import auth_prompts as ap
+    from livekit import rtc
+    agent, fake, _ = make_agent(worker, cv, reason=cv.UNKNOWN_CALLER)
+    tone = b"\x10\x00" * 2205  # 100 ms at 22.05 kHz, as live Timbre would return
+
+    class RateTTS:
+        def synthesize(self, text):
+            class _S:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *a):
+                    return False
+
+                def __aiter__(self):
+                    async def gen():
+                        yield SimpleNamespace(frame=rtc.AudioFrame(tone, 22050, 1, 2205))
+                    return gen()
+            return _S()
+    fake.tts = RateTTS()
+    parts = [ap.Part("clip", "you_entered", "You entered", b"\x00\x00" * 1600, 16000), ap.Part("tts", "x", "x")]
+    frames = asyncio.run(drain(agent._prompt_frames(parts)))
+    assert {f.sample_rate for f in frames} == {16000}

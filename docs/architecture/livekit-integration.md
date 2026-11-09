@@ -81,13 +81,14 @@ The worker (`apps/voice/agent_worker.py`, `phone_entrypoint`) takes the phone pa
 1. **Caller ID.** The SIP from-number (participant attribute `sip.phoneNumber`) is looked up, by its HMAC, in a
    directory of synthetic applicants (`CALLER_DIRECTORY`). An unknown or hidden number is told that no account details
    can be shared on this call and is offered a person. With no key or directory, nobody can be verified (fails closed).
-2. **`verify_caller` (keypad only).** "Press 1 to verify with your loan application number, or 2 with your bank
-   account number." then "Enter the last 4 digits." Only the factor the caller chose is checked. Keys come from the
+2. **`verify_caller` (keypad only).** "Press 1 for your loan application, or 2 for your bank account." then "Enter the
+   last 4 digits." Only the factor the caller chose is checked. Keys come from the
    room event `sip_dtmf_received` (`rtc.SipDTMF`: `digit`, `code`, `participant`; only the caller's own presses count),
    never from speech, and `GetDtmfTask` (which also accepts spoken digits through the LLM) is not used.
-3. **Read-back.** "You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype." is a fixed template synthesized
-   directly by TTS (`session.say(masked_text, audio=...)`), so the room transcript shows `You entered ****.` and
-   nothing is added to the chat context. `*` clears the entry; `#` is ignored.
+3. **Read-back.** "You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype." is stitched from pre-recorded clips
+   (`you_entered`, `digit_4`, `digit_7`, `digit_2`, `digit_9`, `confirm`, 120 ms apart) and played with
+   `session.say(masked_text, audio=...)`, so the room transcript shows `You entered ****.` and nothing is added to
+   the chat context. `*` clears the entry; `#` is ignored.
 4. **Check.** HMAC-SHA256(`CALLER_VERIFY_HMAC_KEY`, salt|factor|last4), compared in constant time; the directory
    holds hashes only (`scripts/voice/seed_caller_directory.py`). Three confirmed mismatches lock verification for
    the rest of the call and offer a person. No keypress for 8 s plays a nudge; 15 s ends the attempt (saying
@@ -95,6 +96,24 @@ The worker (`apps/voice/agent_worker.py`, `phone_entrypoint`) takes the phone pa
 5. **Gate.** Until the caller is verified, `llm_node` never calls the advisory server (`VerifiedGate.fresh()` raises),
    so no application fact can be spoken. The LLM side only ever sees an outcome word (`verified`, `locked`,
    `timeout`, `unknown_caller`, `unavailable`); digits are never logged (`****`).
+
+**Pre-recorded auth phase.** Every line a phone caller hears before verification succeeds (greeting, menu, enter,
+read-back, cleared / retype / confirm-again, nudge, mismatch, locked, timeout, unknown caller, unavailable,
+needs-verification, and "Thank you, you're verified. Connecting you to Saral.") is a clip rendered once with Timbre
+v3.0, voice Tarika, 16 kHz mono, and committed under `apps/voice/prompts/<locale>/` with a `manifest.json` (text,
+sha256 of the text, duration). `apps/voice/auth_prompts.py` looks a clip up by its exact text; the worker plays it as
+LiveKit audio frames (`_say`, `_say_private`, and `tts_node` for gate lines) and never calls the advisory graph or
+live TTS in this phase. A clip that is missing, unreadable or rendered from different text (hash mismatch) is spoken
+with live TTS of the same fixed text and logs a warning (never a digit). Only en-IN exists: the phone flow is English
+and the repo has no Hindi or Telugu wording for these lines yet. Re-render after changing any line:
+
+```bash
+GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py            # renders changed or missing clips only
+GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py --force --only digit_6
+```
+
+One Timbre request per clip (about 30). Digit clips keep only their first spoken word, because Timbre sometimes
+repeats a lone word after a pause. After verification the same session continues as the normal dynamic agent.
 
 **SIP configuration.** The provider trunk must send DTMF as RFC 4733 / RFC 2833 `telephone-event` (not in-band audio);
 LiveKit SIP relays those tones to the room as `sip_dtmf_received`. If your trunk or dispatch rule has a DTMF

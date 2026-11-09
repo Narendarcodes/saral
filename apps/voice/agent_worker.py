@@ -19,8 +19,13 @@ never sees or chooses an application on its own.
 Phone calls (LiveKit SIP participant): there is no Voice Session row, so the caller ID (`sip.phoneNumber`) is matched
 to a hashed synthetic applicant directory (CALLER_DIRECTORY, CALLER_VERIFY_HMAC_KEY) and the caller must pass keypad
 verification (`verify_caller`, caller_verification.py) before any turn reaches the advisory server. Digits arrive as
-`sip_dtmf_received` room events only, the read-back goes straight to TTS with a masked transcript, and neither the
-chat context nor any log ever holds a digit. An unknown number is told no account details can be shared and offered a
+`sip_dtmf_received` room events only, and neither the chat context nor any log ever holds a digit.
+Everything the caller hears before verification succeeds is PRE-RECORDED (auth_prompts.py, apps/voice/prompts/<locale>/,
+rendered once by scripts/voice/render_auth_prompts.py with Timbre v3.0 / Tarika): greeting, menu, enter-digits, the
+read-back stitched from "you entered" + one clip per digit + "press 1 to confirm", mismatch / retry / locked / timeout
+lines and "verified, connecting you to Saral". The auth phase never calls the advisory graph (its LLM) or live TTS; a
+missing or stale clip falls back to live TTS of the same fixed text with a warning. After verification the same
+session continues as the normal dynamic agent. An unknown number is told no account details can be shared and offered a
 person. DTMF must be enabled on the SIP trunk; this is demo-grade authentication (4 digits).
 
 Every turn writes one JSON line (VOICE_TURN_LOG) with: end-of-user-speech -> STT done -> graph answer (and the
@@ -52,6 +57,7 @@ from loan_advisory.agent.voice_log import turn_row  # noqa: E402
 from loan_advisory.state_paths import append_private  # noqa: E402  (P0c private creation)
 from voice_assertion_exchange import Assertions, PhoneAssertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
 import caller_verification as cv  # noqa: E402  (keypad caller verification; no LiveKit imports)
+import auth_prompts as ap  # noqa: E402  (pre-recorded auth-phase clips; no LiveKit imports)
 from gnani_speech import build_stt, build_tts  # noqa: E402  (Gnani Prisma STT + Timbre TTS)
 
 CFG = VoiceSettings.from_env()
@@ -62,7 +68,8 @@ GREETING = {
     "hi": "नमस्ते। मैं आपके लोन फ़ैसले के कारण समझा सकता हूँ, सुधार के उपाय बता सकता हूँ, या नीति के सवालों का जवाब दे सकता हूँ। आप क्या जानना चाहेंगे?",
     "te": "నమస్కారం. మీ లోన్ నిర్ణయానికి కారణాలు వివరించగలను, ఏమి మెరుగుపరచాలో చెప్పగలను, లేదా నియమాల ప్రశ్నలకు జవాబివ్వగలను. మీరు ఏమి తెలుసుకోవాలనుకుంటున్నారు?",
 }
-PHONE_GREETING = "Hello, this is Saral, your loan assistant."
+PHONE_GREETING = cv.PROMPT["greeting"]
+FRAME_MS = 20
 log = logging.getLogger("saral.voice.worker")
 
 
@@ -153,13 +160,16 @@ class GraphLLM(llm.LLM):
 
 
 class AdvisorAgent(Agent):
-    def __init__(self, auth, locale: str, room: rtc.Room, turn: Turn, phone: PhoneCall | None = None):
+    def __init__(self, auth, locale: str, room: rtc.Room, turn: Turn, phone: PhoneCall | None = None,
+                 prompts: ap.PromptStore | None = None):
         super().__init__(instructions="Loan advisory assistant (replies come from the LangGraph advisory graph). "
                                       "Phone callers must pass verify_caller before any account detail is discussed.")
         self.auth, self.locale, self.room, self.turn, self.phone = auth, locale, room, turn, phone
         self.conv = f"voice-{auth.session_id}"
         self._http: aiohttp.ClientSession | None = None
         self._verify_task: asyncio.Task | None = None
+        self.prompts = prompts or ap.PromptStore(locale=locale)
+        self._gate_pending = False
 
     # ------------------------------------------------------------------------------------- phone verification
     @llm.function_tool
@@ -197,26 +207,59 @@ class AdvisorAgent(Agent):
         self.start_verification()
         return cv.PROMPT["needs_verification"]
 
+    def _auth_phase(self) -> bool:
+        return self.phone is not None and not getattr(self.auth, "verified", False)
+
+    async def _prompt_frames(self, parts: list[ap.Part]):
+        """LiveKit frames for a planned prompt: clip and silence PCM in 20 ms frames; a `tts` part (missing clip) is
+        synthesized live. Every frame leaves at the first frame's rate, because the session's resampler is chosen once
+        per utterance."""
+        rate, resampler, resampler_in = None, None, None
+        for part in parts:
+            if part.kind == "tts":
+                async with self.session.tts.synthesize(part.text) as stream:
+                    frames = [ev.frame async for ev in stream]
+            else:
+                n = part.sample_rate * FRAME_MS // 1000
+                step = n * ap.SAMPLE_WIDTH
+                frames = []
+                for i in range(0, len(part.pcm), step):
+                    chunk = part.pcm[i:i + step]
+                    frames.append(rtc.AudioFrame(chunk, part.sample_rate, 1, len(chunk) // ap.SAMPLE_WIDTH))
+            for frame in frames:
+                fr = getattr(frame, "sample_rate", None)
+                if rate is None:
+                    rate = fr
+                if fr is None or rate is None or fr == rate:
+                    yield frame
+                    continue
+                if resampler is None or resampler_in != fr:
+                    resampler, resampler_in = rtc.AudioResampler(input_rate=fr, output_rate=rate, num_channels=1), fr
+                for out in resampler.push(frame):
+                    yield out
+            if resampler is not None:
+                for out in resampler.flush():
+                    yield out
+                resampler = None
+
     async def _say(self, text: str) -> None:
-        """Fixed verification prompts: spoken, kept out of the chat context the LLM sees."""
-        await self.session.say(text, add_to_chat_ctx=False, allow_interruptions=True)
+        """Fixed verification prompts: played from their pre-recorded clip (live TTS of the same text only when the
+        clip is missing), kept out of the chat context."""
+        await self.session.say(text, audio=self._prompt_frames(self.prompts.plan(text)), add_to_chat_ctx=False,
+                               allow_interruptions=True)
 
     async def _say_private(self, spoken: str, shown: str) -> None:
-        """The digit read-back: `spoken` is synthesized directly (never through llm_node or the chat context); the
-        transcript the room and chat context could show is the masked `shown` text."""
-        tts_engine = self.session.tts
-
-        async def audio():
-            async with tts_engine.synthesize(spoken) as stream:
-                async for ev in stream:
-                    yield ev.frame
-
-        await self.session.say(shown, audio=audio(), add_to_chat_ctx=False, allow_interruptions=False)
+        """The digit read-back, stitched from clips ("you entered", one clip per digit, "press 1 to confirm"); the
+        whole `spoken` line goes to live TTS only when a clip is missing. Never through llm_node or the chat context;
+        the transcript the room and chat context could show is the masked `shown` text."""
+        await self.session.say(shown, audio=self._prompt_frames(self.prompts.plan_readback(spoken)),
+                               add_to_chat_ctx=False, allow_interruptions=False)
 
     async def llm_node(self, chat_ctx: llm.ChatContext, tools, model_settings):
         gate = self._gate_reply()
         if gate is not None:  # unverified phone caller: the advisory server is never called, so no fact can leak
             if gate:
+                self._gate_pending = True  # tts_node plays this fixed line from its clip
                 yield gate
             return
         msg = ""
@@ -290,6 +333,11 @@ class AdvisorAgent(Agent):
         tts_engine = self.session.tts
         async for sentence in text:
             if not sentence.strip():
+                continue
+            if self._gate_pending or self._auth_phase():  # auth phase: fixed lines are clips, never live synthesis
+                self._gate_pending = False
+                async for frame in self._prompt_frames(self.prompts.plan(sentence)):
+                    yield frame
                 continue
             t0 = time.perf_counter()
             async with tts_engine.synthesize(sentence) as stream:
@@ -378,7 +426,7 @@ async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant):
     # Keypad digits come only from LiveKit SIP DTMF room events, never from the speech path.
     ctx.room.on("sip_dtmf_received", cv.dtmf_handler(participant.identity, phone.verifier))
     await session.start(agent=agent, room=ctx.room)
-    await session.say(PHONE_GREETING, allow_interruptions=True)
+    await agent._say(PHONE_GREETING)  # pre-recorded, like every line before verification
     agent.start_verification()
 
 
