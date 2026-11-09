@@ -6878,16 +6878,11 @@ textarea:focus-visible {
 	gap: var(--s2);
 }
 
+/* Plain figures, not numbered circles (v4 rule). */
 .first-guide__num {
-	display: inline-grid;
 	flex: 0 0 auto;
-	place-items: center;
-	width: 24px;
-	height: 24px;
-	border: 1px solid var(--line-2);
-	border-radius: 50%;
-	color: var(--ink-2);
-	font-size: 0.8rem;
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
 	font-weight: 600;
 }
 
