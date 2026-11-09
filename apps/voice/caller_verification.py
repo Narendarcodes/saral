@@ -1,25 +1,34 @@
-"""Keypad (DTMF) verification for phone callers of the Saral voice agent.
+"""Keypad (DTMF) verification for phone callers of the Saral voice agent (call flow v2: language first, then 4 digits).
 
 A phone call arrives through LiveKit SIP. The caller ID (the SIP from-number, participant attribute
-`sip.phoneNumber`) is looked up in a directory of synthetic applicant records. An unknown number gets no account
-information and is offered a person. A known number must then prove one factor, the one the caller picks:
+`sip.phoneNumber`) is looked up in a directory of synthetic applicant records; each record names the caller's language
+(one of the ten Gnani codes, default en-IN). Then:
 
-    "Press 1 for your loan application, or 2 for your bank account."
-    "Enter the last 4 digits."
-    "You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype."
+    greeting, in that language, with no name or account data:  "Welcome to Saral. To change language, press nine."
+    9 -> language menu, each option in its own language:        1 English ... 9 Gujarati, 0 Punjabi
+    one factor only:                                            "Please enter the last four digits of your loan
+                                                                 application number."
+    wrong digits:                                               "That didn't match. Please try again."  (no read-back)
+    three mismatches lock verification for the rest of the call.
 
-Digits come from the KEYPAD only (LiveKit `sip_dtmf_received` room events, fed in through `KeypadVerifier.press`),
-never from speech. Every line before verification is a fixed text from PROMPT; the worker plays each one as a
-pre-rendered Timbre clip (auth_prompts.py, apps/voice/prompts/) and never calls the LLM or live TTS for it. The read-back
-is stitched from a "you entered" clip, one clip per digit and a "press 1 to confirm" clip; the transcript and chat
-context only ever see the masked form, and nothing here logs a digit (`****`).
+`9` changes language only while the greeting plays and for LANGUAGE_WINDOW_S after it; once the enter-digits prompt
+has started, 9 is an ordinary digit (a last-4 can start with 9). In the menu an invalid key or no key replays it once,
+then the call continues in the current language.
 
-Each factor is stored as HMAC-SHA256(key, salt|factor|last4) with a per-record salt; the key comes from the
-environment (CALLER_VERIFY_HMAC_KEY), so the directory file holds hashes only. Three confirmed mismatches lock
-verification for the rest of the call. No keypress for 8 s plays a nudge; 15 s ends the attempt.
+An unknown number (or no directory) gets the same en-IN greeting with the press-9 option, then the unknown-caller line
+in whatever language the caller picked; it is never told anything about an account.
 
-DEMO-GRADE: 4 digits is 10,000 combinations and the caller ID can be spoofed. This shows the flow; it is not a
-production authentication scheme.
+Digits come from the KEYPAD only (LiveKit `sip_dtmf_received` room events, fed in through `press`), never from speech.
+Every line before verification is a fixed key of prompt_texts.PROMPT_KEYS; the worker plays it as a pre-rendered
+Timbre clip in the call's language (auth_prompts.py, apps/voice/prompts/<locale>/) and never calls the LLM or live TTS
+for it. Nothing here logs a digit (`****`), and `run()` returns only an outcome word.
+
+The factor is stored as HMAC-SHA256(key, salt|application|last4) with a per-record salt; the key comes from the
+environment (CALLER_VERIFY_HMAC_KEY), so the directory file holds hashes (and the plaintext language code) only.
+No keypress for 8 s plays a nudge; 15 s ends the attempt. Neither counts as a mismatch.
+
+DEMO-GRADE, SYNTHETIC DATA ONLY: 4 digits is 10,000 combinations and the caller ID can be spoofed. This shows the flow;
+it is not a production authentication scheme.
 
 Kept free of LiveKit imports so the security boundary is unit-testable on its own.
 """
@@ -37,6 +46,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Iterable
 
+from prompt_texts import DEFAULT_LANGUAGE, LANGUAGE_BY_KEY, LANGUAGES, PROMPT_KEYS, TEXT
+
 log = logging.getLogger("saral.voice.verify")
 
 KEY_ENV = "CALLER_VERIFY_HMAC_KEY"
@@ -46,39 +57,21 @@ DIGITS = 4
 MAX_ATTEMPTS = 3
 NUDGE_S = 8.0
 GIVE_UP_S = 15.0
+LANGUAGE_KEY = "9"
+LANGUAGE_WINDOW_S = 3.0   # after the greeting, how long a 9 still opens the language menu
+MENU_WAIT_S = 8.0         # how long the language menu waits for a key before replaying (once)
 MASK = "*" * DIGITS
 
-FACTOR_BY_KEY = {"1": "application", "2": "bank_account"}
-FACTORS = tuple(FACTOR_BY_KEY.values())
+FACTOR = "application"    # the one factor: last 4 digits of the loan application number
+FACTORS = (FACTOR,)
 
 VERIFIED, LOCKED, UNKNOWN_CALLER, TIMEOUT, UNAVAILABLE, NOT_REQUIRED = (
     "verified", "locked", "unknown_caller", "timeout", "unavailable", "not_required")
 
-PROMPT = {
-    "greeting": "Hello, this is Saral, your loan assistant.",
-    "menu": "Press 1 for your loan application, or 2 for your bank account.",
-    "menu_again": "Please press 1 for your loan application, or 2 for your bank account.",
-    "enter": "Enter the last 4 digits.",
-    "cleared": "Cleared. Enter the last 4 digits.",
-    "retype": "Okay. Enter the last 4 digits again.",
-    "confirm_again": "Press 1 to confirm or 2 to retype.",
-    "nudge": "Please use your phone keypad.",
-    "no_match": "Those digits don't match our records. Please try again.",
-    "verified": "Thank you, you're verified. Connecting you to Saral.",
-    "locked": ("I couldn't verify you, so I can't discuss account details on this call. "
-               "I can connect you to a member of our team instead."),
-    "timeout": ("I didn't receive any keypresses, so I've stopped verification. I can't share account details until "
-                "you're verified. Say verify to try again, or I can connect you to a member of our team."),
-    "unknown_caller": ("I'm sorry, I can't find an account linked to this phone number, so I can't share account "
-                       "details on this call. I can connect you to a member of our team."),
-    "unavailable": ("I'm sorry, I can't verify callers right now, so I can't share account details on this call. "
-                    "I can connect you to a member of our team."),
-    "needs_verification": "Before I can discuss your account, I need to verify you.",
-}
-READBACK_LEAD = "You entered"
-READBACK_TAIL = "Press 1 to confirm or 2 to retype."
-READBACK = READBACK_LEAD + " {spaced}. " + READBACK_TAIL
-_READBACK_SPOKEN = re.compile(r"You entered (\d), (\d), (\d), (\d)\. Press 1 to confirm or 2 to retype\.")
+# The English lines, for readers and tests; the worker always speaks a key in the call's language.
+PROMPT = dict(TEXT[DEFAULT_LANGUAGE])
+KEYS = PROMPT_KEYS
+LANGUAGE_MENU = "language_menu"   # pseudo-key: the ten `option` clips in key order
 
 
 def mask(_digits: str | None = None) -> str:
@@ -86,18 +79,8 @@ def mask(_digits: str | None = None) -> str:
     return MASK
 
 
-def readback(digits: str) -> tuple[str, str]:
-    """(spoken, shown): the spoken text goes to TTS only; the shown text is what transcripts and chat may hold."""
-    if not re.fullmatch(r"\d{%d}" % DIGITS, digits or ""):
-        raise ValueError("read-back needs exactly 4 keypad digits")
-    return READBACK.format(spaced=", ".join(digits)), READBACK.format(spaced=MASK)
-
-
-def readback_digits(spoken: str) -> str | None:
-    """The 4 digits of a spoken read-back built by `readback()`, or None for any other text. Lets the worker stitch the
-    read-back from digit clips without the verifier handing digits to anything else."""
-    m = _READBACK_SPOKEN.fullmatch(spoken or "")
-    return "".join(m.groups()) if m else None
+def valid_language(code) -> str:
+    return code if code in LANGUAGES else DEFAULT_LANGUAGE
 
 
 # ----------------------------------------------------------------------------------------------------- hashing
@@ -109,17 +92,56 @@ def load_key(env=None) -> bytes | None:
 
 
 def normalize_phone(raw: str | None) -> str | None:
-    """E.164 from a SIP caller ID such as '+910000123456', 'tel:+91...' or 'sip:+91...@host'; None if not a number."""
+    """E.164 from a SIP caller ID, or None if it is not a number. Accepts 'tel:'/'sip:' prefixes, '@host' and ';params',
+    spaces, dashes, dots and brackets, and the usual Indian forms as ONE key: '+91 98765 43210', '919876543210',
+    '09876543210' and a bare '9876543210' all give '+919876543210'. '00' is an international prefix; any other number
+    without '+' is taken as already carrying its country code ('14842950295' -> '+14842950295')."""
     if not raw:
         return None
     s = str(raw).strip()
-    s = re.sub(r"^(sip:|tel:)", "", s, flags=re.I).split("@", 1)[0].split(";", 1)[0]
+    s = re.sub(r"^(sips?:|tel:)", "", s, flags=re.I).split("@", 1)[0].split(";", 1)[0]
     s = re.sub(r"[\s\-().]", "", s)
-    if s.startswith("00"):
+    if not re.fullmatch(r"\+?\d+", s):
+        return None
+    if s.startswith("+"):
+        pass
+    elif len(s) == 10:                          # bare Indian national number
+        s = "+91" + s
+    elif len(s) == 11 and s.startswith("0"):    # Indian trunk prefix 0 + national number
+        s = "+91" + s[1:]
+    elif len(s) == 12 and s.startswith("91"):   # 91 + national number, no '+'
+        s = "+" + s
+    elif s.startswith("00"):                    # international access prefix
         s = "+" + s[2:]
-    if not s.startswith("+"):
+    else:
         s = "+" + s
     return s if re.fullmatch(r"\+\d{8,15}", s) else None
+
+
+CALLER_ID_ATTRIBUTES = ("sip.phoneNumber", "sip.from", "sip.fromUser", "sip.callerId", "sip.callerNumber")
+
+
+def caller_id(attributes: dict | None, identity: str | None = None) -> str | None:
+    """The caller's E.164 number from LiveKit SIP participant attributes: `sip.phoneNumber` first, then the 'from'
+    style fallbacks, then a `sip_<number>` participant identity. None when nothing parses."""
+    attributes = attributes or {}
+    for name in CALLER_ID_ATTRIBUTES:
+        phone = normalize_phone(attributes.get(name))
+        if phone:
+            return phone
+    if identity and str(identity).startswith("sip_"):
+        return normalize_phone(str(identity)[4:])
+    return None
+
+
+def mask_phone(phone: str | None) -> str:
+    """For logs: every digit but the last two masked ('+**********10'); never the number itself."""
+    if not phone:
+        return "none"
+    digits = re.sub(r"\D", "", str(phone))
+    if len(digits) <= 2:
+        return "*" * len(digits)
+    return ("+" if str(phone).startswith("+") else "") + "*" * (len(digits) - 2) + digits[-2:]
 
 
 def phone_hmac(key: bytes, phone: str) -> str:
@@ -138,6 +160,7 @@ class CallerRecord:
     application_id: str
     salt: str
     factor_hmacs: dict  # factor -> hex HMAC; never a digit
+    language: str = DEFAULT_LANGUAGE  # Gnani code the call opens in; plaintext (not sensitive)
 
     def matches(self, key: bytes, factor: str, last4: str) -> bool:
         stored = self.factor_hmacs.get(factor)
@@ -147,7 +170,7 @@ class CallerRecord:
 
 
 class CallerDirectory:
-    """Synthetic applicants keyed by the HMAC of their phone number. Holds hashes only."""
+    """Synthetic applicants keyed by the HMAC of their phone number. Holds hashes (and a language code) only."""
 
     def __init__(self, key: bytes, records: dict[str, CallerRecord]):
         self.key, self._records = key, dict(records)
@@ -163,8 +186,10 @@ class CallerDirectory:
     def from_seed(cls, key: bytes, seed: dict) -> "CallerDirectory":
         records = {}
         for row in seed.get("records", []):
+            # A directory from the v1 flow may still carry a bank_account hash: it is ignored, never offered.
             records[row["phone_hmac"]] = CallerRecord(row["applicant_id"], row["application_id"], row["salt"],
-                                                      {f: row["factors"][f] for f in FACTORS if f in row["factors"]})
+                                                      {f: row["factors"][f] for f in FACTORS if f in row["factors"]},
+                                                      valid_language(row.get("language")))
         return cls(key, records)
 
     @classmethod
@@ -173,22 +198,24 @@ class CallerDirectory:
 
 
 def build_seed(key: bytes, entries: Iterable[dict], *, salt_fn: Callable[[], str] = lambda: secrets.token_hex(16)) -> dict:
-    """Hash synthetic plaintext entries {phone, applicant_id, application_id, application_last4, bank_account_last4}
-    into a directory seed. The output carries no phone number and no digit."""
+    """Hash synthetic plaintext entries {phone, applicant_id, application_id, application_last4, language?} into a
+    directory seed. `language` is one of the ten Gnani codes (default en-IN). The output carries no phone number and
+    no digit."""
     records = []
     for e in entries:
         phone = normalize_phone(e["phone"])
         if phone is None:
             raise ValueError("seed entry has no usable phone number")
+        language = e.get("language") or DEFAULT_LANGUAGE
+        if language not in LANGUAGES:
+            raise ValueError(f"seed language must be one of {', '.join(LANGUAGES)}")
         salt = salt_fn()
-        factors = {}
-        for f in FACTORS:
-            last4 = str(e[f"{f}_last4"])
-            if not re.fullmatch(r"\d{%d}" % DIGITS, last4):
-                raise ValueError("seed factor must be 4 digits")
-            factors[f] = factor_hmac(key, salt, f, last4)
+        last4 = str(e["application_last4"])
+        if not re.fullmatch(r"\d{%d}" % DIGITS, last4):
+            raise ValueError("seed factor must be 4 digits")
         records.append({"phone_hmac": phone_hmac(key, phone), "applicant_id": e["applicant_id"],
-                        "application_id": e["application_id"], "salt": salt, "factors": factors})
+                        "application_id": e["application_id"], "salt": salt, "language": language,
+                        "factors": {FACTOR: factor_hmac(key, salt, FACTOR, last4)}})
     return {"_warning": "SYNTHETIC FIXTURES ONLY. Hashes only (HMAC-SHA256, key from CALLER_VERIFY_HMAC_KEY).",
             "algorithm": "hmac-sha256", "records": records}
 
@@ -198,32 +225,43 @@ class _NoKeypress(Exception):
     pass
 
 
-Speak = Callable[[str], Awaitable[None]]
-SpeakPrivate = Callable[[str, str], Awaitable[None]]  # (spoken text for TTS only, masked text for transcripts)
+Speak = Callable[[str], Awaitable[None]]  # a PROMPT_KEYS key (or LANGUAGE_MENU), played in the call's language
 
 
-class KeypadVerifier:
-    """One per call. `press()` is fed from the room's DTMF events; `run()` drives one verification attempt and
-    returns only an outcome word (never digits), which is all the LLM or the logs ever get to see."""
+class KeypadCall:
+    """The keypad side of one call: key queue, timeouts, the greeting and the press-9 language menu. Used alone for
+    an unknown caller (nothing to verify) and as the base of `KeypadVerifier`."""
 
-    def __init__(self, record: CallerRecord, key: bytes, *, speak: Speak, speak_private: SpeakPrivate,
-                 max_attempts: int = MAX_ATTEMPTS, nudge_s: float = NUDGE_S, give_up_s: float = GIVE_UP_S):
-        self.record, self._key = record, key
-        self._speak, self._speak_private = speak, speak_private
-        self.max_attempts, self.nudge_s, self.give_up_s = max_attempts, nudge_s, give_up_s
+    def __init__(self, *, speak: Speak, language: str = DEFAULT_LANGUAGE,
+                 on_language: Callable[[str], None] | None = None, nudge_s: float = NUDGE_S,
+                 give_up_s: float = GIVE_UP_S, window_s: float = LANGUAGE_WINDOW_S, menu_wait_s: float = MENU_WAIT_S):
+        self._speak, self._on_language = speak, on_language
+        self.language = valid_language(language)
+        self.nudge_s, self.give_up_s, self.window_s, self.menu_wait_s = nudge_s, give_up_s, window_s, menu_wait_s
         self._keys: asyncio.Queue[str] = asyncio.Queue()
         self._running = asyncio.Lock()
-        self.verified = False
-        self.locked = False
-        self.failures = 0
-        self.factor: str | None = None
+        self.greeted = False
+        self.step = 0              # one per prompt that waits for keys (greeting, menu, enter, no_match, cleared)
+        self._nudged_step = -1     # the step that already had its one "please use your keypad"
+
+    async def _prompt(self, key: str) -> None:
+        self.step += 1
+        await self._speak(key)
+
+    def may_nudge(self) -> bool:
+        """True once per step: the keypad nudge (from the 8 s timer or from the caller talking) plays at most once
+        per prompt, never on every utterance."""
+        if self._nudged_step == self.step:
+            return False
+        self._nudged_step = self.step
+        return True
 
     @property
     def busy(self) -> bool:
         return self._running.locked()
 
     def press(self, digit: str) -> None:
-        """A keypad press. Ignored unless a verification attempt is waiting for keys."""
+        """A keypad press. Ignored unless the call is waiting for keys."""
         if self.busy and isinstance(digit, str) and len(digit) == 1 and digit in "0123456789*#":
             self._keys.put_nowait(digit)
 
@@ -231,31 +269,92 @@ class KeypadVerifier:
         while not self._keys.empty():
             self._keys.get_nowait()
 
+    async def _key_within(self, seconds: float) -> str | None:
+        try:
+            return await asyncio.wait_for(self._keys.get(), max(0.0, seconds))
+        except asyncio.TimeoutError:
+            return None
+
     async def _next_key(self) -> str:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.give_up_s
-        try:
-            return await asyncio.wait_for(self._keys.get(), self.nudge_s)
-        except asyncio.TimeoutError:
-            pass
-        await self._speak(PROMPT["nudge"])
-        try:
-            return await asyncio.wait_for(self._keys.get(), max(0.0, deadline - loop.time()))
-        except asyncio.TimeoutError:
-            raise _NoKeypress() from None
+        key = await self._key_within(self.nudge_s)
+        if key is not None:
+            return key
+        if self.may_nudge():
+            await self._speak("nudge")
+        key = await self._key_within(deadline - loop.time())
+        if key is None:
+            raise _NoKeypress()
+        return key
 
-    async def _choose_factor(self) -> str:
+    def _set_language(self, code: str) -> None:
+        self.language = code
+        log.info("call language set to %s", code)
+        if self._on_language is not None:
+            self._on_language(code)
+
+    async def _language_menu(self) -> None:
+        """Ten options, each in its own language. Invalid key or no key: replay once, then keep the current one."""
+        for _ in range(2):
+            self._drain()
+            await self._prompt(LANGUAGE_MENU)
+            key = await self._key_within(self.menu_wait_s)
+            if key in LANGUAGE_BY_KEY:
+                self._set_language(LANGUAGE_BY_KEY[key])
+                return
+        log.info("language menu: no valid choice; keeping %s", self.language)
+
+    async def _greet(self) -> None:
+        """The opening line, once per call. A 9 keyed during it or within `window_s` after it opens the menu; any
+        other early key is dropped (the enter-digits prompt has not been played yet)."""
+        if self.greeted:
+            return
+        self.greeted = True
         self._drain()
-        await self._speak(PROMPT["menu"])
+        await self._prompt("greeting")
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.window_s
         while True:
-            key = await self._next_key()
-            if key in FACTOR_BY_KEY:
-                return FACTOR_BY_KEY[key]
-            await self._speak(PROMPT["menu_again"])
+            key = await self._key_within(deadline - loop.time())
+            if key is None:
+                return
+            if key == LANGUAGE_KEY:
+                await self._language_menu()
+                return
+
+    async def run_unverifiable(self, reason: str) -> str:
+        """Unknown caller / no directory: greeting (with the press-9 option), then the `reason` line."""
+        async with self._running:
+            try:
+                await self._greet()
+                await self._speak(reason)
+            finally:
+                self._drain()
+        return reason
+
+
+class KeypadVerifier(KeypadCall):
+    """One per call for a caller ID found in the directory. `press()` is fed from the room's DTMF events; `run()`
+    greets once, offers the language menu, then drives one verification attempt and returns only an outcome word
+    (never digits), which is all the LLM or the logs ever get to see."""
+
+    def __init__(self, record: CallerRecord, key: bytes, *, speak: Speak,
+                 on_language: Callable[[str], None] | None = None, max_attempts: int = MAX_ATTEMPTS,
+                 nudge_s: float = NUDGE_S, give_up_s: float = GIVE_UP_S, window_s: float = LANGUAGE_WINDOW_S,
+                 menu_wait_s: float = MENU_WAIT_S):
+        super().__init__(speak=speak, language=record.language, on_language=on_language, nudge_s=nudge_s,
+                         give_up_s=give_up_s, window_s=window_s, menu_wait_s=menu_wait_s)
+        self.record, self._key = record, key
+        self.max_attempts = max_attempts
+        self.verified = False
+        self.locked = False
+        self.failures = 0
+        self.factor = FACTOR
 
     async def _collect(self, prompt: str) -> str:
         self._drain()
-        await self._speak(PROMPT[prompt])
+        await self._prompt(prompt)
         buf: list[str] = []
         while len(buf) < DIGITS:
             key = await self._next_key()
@@ -263,58 +362,41 @@ class KeypadVerifier:
                 buf.append(key)
             elif key == "*":
                 buf.clear()
-                await self._speak(PROMPT["cleared"])
+                await self._prompt("cleared")
         return "".join(buf)
-
-    async def _confirm(self, digits: str) -> bool:
-        self._drain()  # a fifth key or a key typed during the read-back must not count as the answer
-        spoken, shown = readback(digits)
-        await self._speak_private(spoken, shown)
-        while True:
-            key = await self._next_key()
-            if key == "1":
-                return True
-            if key == "2":
-                return False
-            await self._speak(PROMPT["confirm_again"])
 
     async def run(self) -> str:
         if self.verified:
             return VERIFIED
         if self.locked:
-            await self._speak(PROMPT["locked"])
-            return LOCKED
+            return LOCKED  # the locked line was spoken once already; the worker ends the call after it
         if self._running.locked():
             return "in_progress"
         async with self._running:
             try:
-                self.factor = self.factor or await self._choose_factor()
+                await self._greet()
                 prompt = "enter"
                 while True:
                     digits = await self._collect(prompt)
-                    if not await self._confirm(digits):
-                        prompt = "retype"
-                        continue
-                    ok = self.record.matches(self._key, self.factor, digits)
+                    ok = self.record.matches(self._key, FACTOR, digits)
                     digits = None  # noqa: F841  drop the plaintext as soon as it has been compared
                     if ok:
                         self.verified = True
-                        log.info("caller verified factor=%s digits=%s", self.factor, MASK)
-                        await self._speak(PROMPT["verified"])
+                        log.info("caller verified factor=%s digits=%s", FACTOR, MASK)
+                        await self._speak("verified")
                         return VERIFIED
                     self.failures += 1
                     log.warning("caller verification mismatch attempt=%d/%d factor=%s digits=%s",
-                                self.failures, self.max_attempts, self.factor, MASK)
+                                self.failures, self.max_attempts, FACTOR, MASK)
                     if self.failures >= self.max_attempts:
                         self.locked = True
                         log.warning("caller verification locked for this call")
-                        await self._speak(PROMPT["locked"])
+                        await self._speak("locked")
                         return LOCKED
-                    await self._speak(PROMPT["no_match"])
-                    prompt = "enter"
+                    prompt = "no_match"
             except _NoKeypress:
                 log.info("caller verification ended: no keypress")
-                await self._speak(PROMPT["timeout"])
+                await self._speak("timeout")
                 return TIMEOUT
             finally:
                 self._drain()
@@ -344,7 +426,7 @@ class VerifiedGate:
         return await self._exchange()
 
 
-def dtmf_handler(caller_identity: str, verifier: KeypadVerifier | None):
+def dtmf_handler(caller_identity: str, verifier: KeypadCall | None):
     """Listener for the LiveKit room event `sip_dtmf_received` (livekit.rtc.SipDTMF: .digit, .code, .participant).
     Only the caller's own presses count; nothing is logged and nothing reaches the chat context."""
     def _on(ev) -> None:

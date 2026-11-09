@@ -16,16 +16,19 @@ Frappe's `voice_assertion` method and forwards the fresh 60-second assertion as 
 therefore uses exactly the same authorization path as text, and the worker holds no borrower cookie. The worker
 never sees or chooses an application on its own.
 
-Phone calls (LiveKit SIP participant): there is no Voice Session row, so the caller ID (`sip.phoneNumber`) is matched
-to a hashed synthetic applicant directory (CALLER_DIRECTORY, CALLER_VERIFY_HMAC_KEY) and the caller must pass keypad
-verification (`verify_caller`, caller_verification.py) before any turn reaches the advisory server. Digits arrive as
-`sip_dtmf_received` room events only, and neither the chat context nor any log ever holds a digit.
-Everything the caller hears before verification succeeds is PRE-RECORDED (auth_prompts.py, apps/voice/prompts/<locale>/,
-rendered once by scripts/voice/render_auth_prompts.py with Timbre v3.0 / Tarika): greeting, menu, enter-digits, the
-read-back stitched from "you entered" + one clip per digit + "press 1 to confirm", mismatch / retry / locked / timeout
-lines and "verified, connecting you to Saral". The auth phase never calls the advisory graph (its LLM) or live TTS; a
-missing or stale clip falls back to live TTS of the same fixed text with a warning. After verification the same
-session continues as the normal dynamic agent.
+Phone calls (LiveKit SIP participant), call flow v2 "language first, then 4 digits": there is no Voice Session row, so
+the caller ID (`sip.phoneNumber`) is matched to a hashed synthetic applicant directory (CALLER_DIRECTORY,
+CALLER_VERIFY_HMAC_KEY) whose record names the caller's language (ten Gnani codes, default en-IN). The caller hears a
+greeting in that language with no name or account data ("Welcome to Saral. To change language, press nine."), may
+press 9 for a ten-language menu (each option in its own language), then keys the last 4 digits of the loan
+application number (`verify_caller`, caller_verification.py) before any turn reaches the advisory server. No
+read-back; three mismatches lock the call. Digits arrive as `sip_dtmf_received` room events only, and neither the chat
+context nor any log ever holds a digit. Everything the caller hears before verification succeeds is PRE-RECORDED
+(auth_prompts.py, apps/voice/prompts/<locale>/, rendered once by scripts/voice/render_auth_prompts.py with Timbre v3.0 /
+Tarika). The auth phase never calls the advisory graph (its LLM) or live TTS; a missing or stale clip falls back to
+live TTS of the same fixed text, in its language, with a warning. After the pre-recorded "Thank you, you're verified."
+the session switches Prisma STT to "<language>,en-IN" (en-IN alone for English) and Timbre TTS to the language, greets
+the caller by first name (learnt only now, from the phone assertion) and asks the graph to answer in that language.
 
 Tone (tone_wiring.py -> tone_hook.py) starts only after verification (phone: keypad verified; browser: the Voice
 Session row): per turn it sets the Timbre speed (0.90-1.05), adds closed-set acknowledgement / hand-over lines and
@@ -63,8 +66,9 @@ from loan_advisory.state_paths import append_private  # noqa: E402  (P0c private
 from voice_assertion_exchange import Assertions, PhoneAssertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
 import caller_verification as cv  # noqa: E402  (keypad caller verification; no LiveKit imports)
 import auth_prompts as ap  # noqa: E402  (pre-recorded auth-phase clips; no LiveKit imports)
+import prompt_texts as pt  # noqa: E402  (fixed call lines in ten languages; no LiveKit imports)
 from tone_wiring import ToneSession, make_hook  # noqa: E402  (tone engine, used only after verification)
-from gnani_speech import build_stt, build_tts  # noqa: E402  (Gnani Prisma STT + Timbre TTS)
+from gnani_speech import build_stt, build_stt_for_language, build_tts  # noqa: E402  (Gnani Prisma STT + Timbre TTS)
 
 CFG = VoiceSettings.from_env()
 AGENT_HTTP, TURN_LOG = CFG.agent_http, CFG.turn_log
@@ -74,31 +78,78 @@ GREETING = {
     "hi": "नमस्ते। मैं आपके लोन फ़ैसले के कारण समझा सकता हूँ, सुधार के उपाय बता सकता हूँ, या नीति के सवालों का जवाब दे सकता हूँ। आप क्या जानना चाहेंगे?",
     "te": "నమస్కారం. మీ లోన్ నిర్ణయానికి కారణాలు వివరించగలను, ఏమి మెరుగుపరచాలో చెప్పగలను, లేదా నియమాల ప్రశ్నలకు జవాబివ్వగలను. మీరు ఏమి తెలుసుకోవాలనుకుంటున్నారు?",
 }
-PHONE_GREETING = cv.PROMPT["greeting"]
 FRAME_MS = 20
+PHONE_MIN_INTERRUPTION_S = 0.8   # SIP: echo of our own TTS shorter than this never barges in
+MAX_TIMEOUTS = 2                 # a second keypad timeout ends the call
+GRAPH_LOCALES = {"en-IN": "en", "hi-IN": "hi", "te-IN": "te"}  # call languages the graph also has templates for
+FIRST_NAME = re.compile(r"^[^\W\d_][^\W\d_'\-]{0,39}$")
 log = logging.getLogger("saral.voice.worker")
 
 
 class PhoneCall:
-    """What the worker knows about a SIP caller: the matched record (or why there is none) and its verifier."""
+    """What the worker knows about a SIP caller: the matched record (or why there is none), its verifier, and the
+    keypad session that carries the call's language (the verifier itself for a known caller)."""
 
-    def __init__(self, record: cv.CallerRecord | None, reason: str | None, verifier: cv.KeypadVerifier | None = None):
+    def __init__(self, record: cv.CallerRecord | None, reason: str | None, verifier: cv.KeypadVerifier | None = None,
+                 keypad: cv.KeypadCall | None = None):
         self.record, self.reason, self.verifier = record, reason, verifier
+        self.keypad = keypad or verifier
+
+
+def graph_locale(language: str) -> str:
+    """The graph's template locale for a call language: en / hi / te; the other seven fall back to en templates (their
+    composed answers are still written in the call language, see `reply_language`)."""
+    return GRAPH_LOCALES.get(language, "en")
+
+
+def first_name(raw) -> str | None:
+    """A first name fit to speak, or None (then the greeting has no name)."""
+    name = str(raw or "").strip().split(" ")[0] if raw else ""
+    return name if FIRST_NAME.match(name) else None
 
 
 def phone_lookup(caller_id: str | None, env=None) -> tuple[cv.CallerRecord | None, bytes | None, str | None]:
-    """(record, key, reason). Fails closed: no key or no directory means nobody can be verified on this call."""
+    """(record, key, reason). Fails closed: no key or no directory means nobody can be verified on this call. Logs
+    which reason fired; the caller number appears masked (last 2 digits only) and no digit is ever logged."""
     env = os.environ if env is None else env
     key, path = cv.load_key(env), env.get(cv.DIRECTORY_ENV, "")
-    if key is None or not path:
+    if key is None:
+        log.warning("caller verification unavailable: %s missing or shorter than %d bytes", cv.KEY_ENV,
+                    cv.MIN_KEY_BYTES)
+        return None, None, cv.UNAVAILABLE
+    if not path:
+        log.warning("caller verification unavailable: %s is not set", cv.DIRECTORY_ENV)
         return None, None, cv.UNAVAILABLE
     try:
         directory = cv.CallerDirectory.load(path, key)
-    except (OSError, ValueError, KeyError):
-        log.warning("caller directory could not be loaded")  # the path and contents stay out of the log
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        # the path and contents stay out of the log; the error class says which kind of failure it was
+        log.warning("caller verification unavailable: caller directory unreadable (%s)", type(e).__name__)
         return None, None, cv.UNAVAILABLE
-    record = directory.lookup(caller_id)
-    return (record, key, None) if record is not None else (None, None, cv.UNKNOWN_CALLER)
+    phone = cv.normalize_phone(caller_id)
+    if phone is None:
+        log.info("unknown caller: no usable caller ID on the SIP participant")
+        return None, None, cv.UNKNOWN_CALLER
+    record = directory.lookup(phone)
+    if record is None:
+        log.info("unknown caller: no directory match for %s (%d records)", cv.mask_phone(phone), len(directory))
+        return None, None, cv.UNKNOWN_CALLER
+    log.info("caller ID matched %s language=%s", cv.mask_phone(phone), record.language)
+    return record, key, None
+
+
+def phone_session_kwargs(cls=None) -> dict:
+    """Barge-in settings for SIP calls, where the phone line can echo our own TTS back: a longer minimum interruption
+    and false-interruption resume. Only the keywords this livekit-agents version accepts are passed."""
+    import inspect
+    cls = cls or AgentSession
+    try:
+        params = inspect.signature(cls.__init__).parameters
+    except (TypeError, ValueError):
+        return {}
+    want = {"min_interruption_duration": PHONE_MIN_INTERRUPTION_S, "false_interruption_timeout": 1.5,
+            "resume_false_interruption": True}
+    return {k: v for k, v in want.items() if k in params}
 
 
 class Turn:
@@ -176,13 +227,36 @@ class AdvisorAgent(Agent):
         self._verify_task: asyncio.Task | None = None
         self.prompts = prompts or ap.PromptStore(locale=locale)
         self._gate_pending = False
+        self._tone_default = tone is None
         self.tone = tone or ToneSession(make_hook(locale))
+        self.call_language: str | None = None  # set for phone calls once verified (the language the call ended up in)
+        self.timeouts = 0
+        self.ended = False
+        self.end_call = None  # async () -> None, set by phone_entrypoint: hang up (delete the room)
+
+    @property
+    def language(self) -> str:
+        """The phone call's current language (Gnani code): the keypad's until verification, then fixed."""
+        if self.call_language:
+            return self.call_language
+        keypad = getattr(self.phone, "keypad", None) if self.phone is not None else None
+        return keypad.language if keypad is not None else pt.DEFAULT_LANGUAGE
+
+    def apply_language(self, language: str, *, stt: bool = False) -> None:
+        """Timbre TTS speaks `language` from the next synthesis (the live-TTS fallback before verification, every
+        reply after it). With `stt`, Prisma STT is swapped for one listening for "<language>,en-IN"."""
+        upd = getattr(self.session.tts, "update_options", None)
+        if callable(upd):
+            upd(language=language)
+        if stt:
+            self.update_options(stt=build_stt_for_language(CFG.speech, language))
+        self.locale = graph_locale(language)
 
     # ------------------------------------------------------------------------------------- phone verification
     @llm.function_tool
     async def verify_caller(self) -> str:
         """Verify a phone caller with their phone KEYPAD before any account or application detail is discussed.
-        The caller picks one factor (1: loan application number, 2: bank account number) and keys its last 4 digits.
+        The caller keys the last 4 digits of their loan application number (9 during the greeting changes language).
         Never ask the caller to say digits aloud. Returns only the outcome: verified, locked, timeout,
         unknown_caller, unavailable or not_required; it never returns digits."""
         return await self.run_verification()
@@ -190,24 +264,71 @@ class AdvisorAgent(Agent):
     async def run_verification(self) -> str:
         if self.phone is None:
             return cv.NOT_REQUIRED  # browser sessions are authorised by Frappe's Voice Session row
+        reason = self.phone.reason or cv.UNAVAILABLE
+        if self.ended:
+            return reason if self.phone.verifier is None else cv.LOCKED
         if self.phone.verifier is None:
-            await self._say(cv.PROMPT[self.phone.reason or cv.UNAVAILABLE])
-            return self.phone.reason or cv.UNAVAILABLE
+            keypad = self.phone.keypad
+            if keypad is not None and keypad.busy:
+                return reason
+            if keypad is not None and not keypad.greeted:
+                await keypad.run_unverifiable(reason)  # en-IN greeting + press 9, then the refusal, once
+            else:
+                await self._say_key(reason)
+            await self._hang_up()
+            return reason
         result = await self.phone.verifier.run()
         if result == cv.VERIFIED:
             await self.on_verified()
+        elif result == cv.LOCKED:
+            await self._hang_up()
+        elif result == cv.TIMEOUT:
+            self.timeouts += 1
+            if self.timeouts >= MAX_TIMEOUTS:
+                await self._hang_up()
         return result
 
+    async def _hang_up(self) -> None:
+        """End the call politely once the refusal / locked line has finished playing (session.say is awaited to
+        playout before this runs). Idempotent."""
+        if self.ended:
+            return
+        self.ended = True
+        log.info("phone call ended before verification")
+        if self.end_call is not None:
+            try:
+                await self.end_call()
+            except Exception:
+                log.warning("could not end the call cleanly")
+
     async def on_verified(self, speak: bool = True) -> None:
-        """Hand-over from the pre-recorded auth phase to the dynamic agent: start the tone engine (never before).
-        `speak=False` (browser calls, which open with their own greeting) starts tone without its opening lines."""
+        """Hand-over from the pre-recorded auth phase to the dynamic agent. Phone: fix the call language on STT, TTS
+        and the graph, then greet the caller by first name (live TTS; the name is fetched only now). Then start the
+        tone engine (never before). `speak=False` (browser calls, which open with their own greeting) starts tone
+        without its opening lines."""
+        if self.phone is not None:
+            self.call_language = self.language
+            self.apply_language(self.call_language, stt=True)
+            if self._tone_default:
+                self.tone = ToneSession(make_hook(self.locale))
+            name = None
+            try:
+                name = first_name((await self.auth.fresh()).get("first_name"))
+            except Exception:  # the greeting goes on without a name; the reason stays out of the log
+                log.warning("caller first name unavailable; greeting without it")
+            if speak:
+                await self.session.say(pt.live_greeting(self.call_language, name), allow_interruptions=True)
         try:
             lines = await self.tone.activate()
         except Exception:  # tone is an enhancement; the verified call goes on without it
             log.warning("tone engine could not start; continuing with the neutral tone")
             return
-        for line in lines if speak else []:
+        for line in lines if speak and self._tone_lines_fit() else []:
             await self.session.say(line, add_to_chat_ctx=False, allow_interruptions=True)
+
+    def _tone_lines_fit(self) -> bool:
+        """Tone's closed-set lines exist in en / hi / te only: a call in another language skips them."""
+        return self.phone is None or self.language in GRAPH_LOCALES
 
     def start_verification(self) -> None:
         if self._verify_task is None or self._verify_task.done():
@@ -215,18 +336,26 @@ class AdvisorAgent(Agent):
             self._verify_task.add_done_callback(lambda t: t.cancelled() or t.exception())
 
     def _gate_reply(self) -> str | None:
-        """None when this turn may reach the advisory server; otherwise the fixed line to speak instead."""
+        """None when this turn may reach the advisory server. Otherwise "" (nothing is spoken for the turn): before
+        verification the caller's speech is ignored. The only reaction is the keypad nudge, at most once per prompt,
+        or (after a keypad timeout) restarting verification. Refusal lines are never replayed per utterance."""
         if self.phone is None or getattr(self.auth, "verified", False):
             return None
-        v = self.phone.verifier
-        if v is None:
-            return cv.PROMPT[self.phone.reason or cv.UNAVAILABLE]
-        if v.locked:
-            return cv.PROMPT["locked"]
-        if v.busy:
-            return ""  # the keypad flow is speaking; say nothing over it
-        self.start_verification()
-        return cv.PROMPT["needs_verification"]
+        if self.ended:
+            return ""
+        v, keypad = self.phone.verifier, self.phone.keypad
+        if keypad is not None and keypad.busy:
+            if keypad.may_nudge():
+                self._spawn(self._say_key("nudge"))
+            return ""
+        if v is None or v.locked:
+            return ""  # the refusal is (being) spoken once and the call ends after it
+        self.start_verification()  # e.g. "say something to try again" after a keypad timeout
+        return ""
+
+    def _spawn(self, coro) -> None:
+        task = asyncio.ensure_future(coro)
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())
 
     def _auth_phase(self) -> bool:
         return self.phone is not None and not getattr(self.auth, "verified", False)
@@ -238,8 +367,7 @@ class AdvisorAgent(Agent):
         rate, resampler, resampler_in = None, None, None
         for part in parts:
             if part.kind == "tts":
-                async with self.session.tts.synthesize(part.text) as stream:
-                    frames = [ev.frame async for ev in stream]
+                frames = await self._synthesize_in(part.text, part.language)
             else:
                 n = part.sample_rate * FRAME_MS // 1000
                 step = n * ap.SAMPLE_WIDTH
@@ -263,17 +391,29 @@ class AdvisorAgent(Agent):
                     yield out
                 resampler = None
 
-    async def _say(self, text: str) -> None:
-        """Fixed verification prompts: played from their pre-recorded clip (live TTS of the same text only when the
-        clip is missing), kept out of the chat context."""
-        await self.session.say(text, audio=self._prompt_frames(self.prompts.plan(text)), add_to_chat_ctx=False,
-                               allow_interruptions=True)
+    async def _synthesize_in(self, text: str, language: str | None) -> list:
+        """Live TTS of a fixed line whose clip is missing, in that line's language (a language-menu option can be in
+        a language other than the call's); the TTS language is put back afterwards."""
+        tts = self.session.tts
+        current = getattr(tts, "language", None)
+        upd = getattr(tts, "update_options", None)
+        switch = bool(language) and callable(upd) and current is not None and language != current
+        if switch:
+            upd(language=language)
+        try:
+            async with tts.synthesize(text) as stream:
+                return [ev.frame async for ev in stream]
+        finally:
+            if switch:
+                upd(language=current)
 
-    async def _say_private(self, spoken: str, shown: str) -> None:
-        """The digit read-back, stitched from clips ("you entered", one clip per digit, "press 1 to confirm"); the
-        whole `spoken` line goes to live TTS only when a clip is missing. Never through llm_node or the chat context;
-        the transcript the room and chat context could show is the masked `shown` text."""
-        await self.session.say(shown, audio=self._prompt_frames(self.prompts.plan_readback(spoken)),
+    async def _say_key(self, key: str) -> None:
+        """A fixed auth-phase line by key, in the call's current language: played from its pre-recorded clip (live
+        TTS of the same text only when the clip is missing), kept out of the chat context."""
+        lang = self.language
+        shown = pt.menu_text() if key == cv.LANGUAGE_MENU else pt.text(lang, key)
+        # Never interruptible: a "hello" over a refusal or a prompt must not cut it off and make it restart.
+        await self.session.say(shown, audio=self._prompt_frames(self.prompts.plan_key(key, lang)),
                                add_to_chat_ctx=False, allow_interruptions=False)
 
     async def llm_node(self, chat_ctx: llm.ChatContext, tools, model_settings):
@@ -295,9 +435,10 @@ class AdvisorAgent(Agent):
             set_speed(speed)
         budget = self.tone.budget(plan)
         speak_answer = self.tone.speak_answer(plan)
+        lines_fit = self._tone_lines_fit()
         if plan is not None:
             self.turn.info.update(tone_tier=plan.tone.tier, tone_speed=speed, tone_fired=list(plan.fired))
-        for line in self.tone.lead_lines(plan):
+        for line in self.tone.lead_lines(plan) if lines_fit else []:
             yield line
         self.turn.mark("graph_start")
         self.turn.info["locale"] = self.locale
@@ -307,12 +448,15 @@ class AdvisorAgent(Agent):
         # The body carries the question only: identity, application and language come from the
         # assertion, so a tampered worker cannot change whose file is explained.
         body = {"message": msg or "hello", "channel": "voice", "conversation_id": self.conv}
+        if self.phone is not None and self.call_language:
+            # The language the caller chose on the keypad: the graph writes its answer in it. Not an identity claim.
+            body["reply_language"] = self.call_language
         final: dict = {}
 
         async def events():
             """One fresh assertion, then NDJSON events from the advisory server (sentence streaming)."""
             assertion = await self.auth.fresh()
-            self.locale = assertion.get("locale") or self.locale
+            self.locale = graph_locale(self.call_language) if self.call_language else (assertion.get("locale") or self.locale)
             headers = {"Authorization": f"Bearer {assertion['assertion']}"}
             if ctx is not None:  # W3C traceparent -> the server's advisor.turn becomes a child of this voice.turn
                 from opentelemetry.propagate import inject
@@ -342,7 +486,7 @@ class AdvisorAgent(Agent):
             else:
                 self.turn.mark("first_sentence")
             yield text
-        for line in self.tone.closing_lines(plan):
+        for line in self.tone.closing_lines(plan) if lines_fit else []:
             yield line
         if budget is not None:
             self.turn.info["tone_deferred"] = budget.deferred
@@ -374,7 +518,7 @@ class AdvisorAgent(Agent):
                 continue
             if self._gate_pending or self._auth_phase():  # auth phase: fixed lines are clips, never live synthesis
                 self._gate_pending = False
-                async for frame in self._prompt_frames(self.prompts.plan(sentence)):
+                async for frame in self._prompt_frames(self.prompts.plan(sentence, self.language)):
                     yield frame
                 continue
             t0 = time.perf_counter()
@@ -461,8 +605,9 @@ async def entrypoint(ctx: JobContext):
 
 
 async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant):
-    """A SIP caller: caller-ID lookup, then keypad verification before any advisory turn. Prompts are English."""
-    record, key, reason = phone_lookup(participant.attributes.get("sip.phoneNumber"))
+    """A SIP caller: caller-ID lookup, greeting in the record's language (press 9 for the language menu), then keypad
+    verification before any advisory turn. An unknown caller hears the en-IN greeting and the unknown-caller line."""
+    record, key, reason = phone_lookup(cv.caller_id(participant.attributes, participant.identity))
     http = aiohttp.ClientSession()
     phone = PhoneCall(record, reason)
     exchange = None
@@ -474,16 +619,29 @@ async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant):
         async def exchange():
             return await pa.fresh(phone.verifier.factor)
     gate = cv.VerifiedGate(None, exchange)
-    locale, turn = "en", Turn()
-    stt_engine, tts_engine = build_stt(CFG.speech, locale), build_tts(CFG.speech, locale)
+    language = record.language if record is not None else pt.DEFAULT_LANGUAGE
+    locale, turn = graph_locale(language), Turn()
+    stt_engine = build_stt_for_language(CFG.speech, language)
+    tts_engine = build_tts(CFG.speech, locale)
+    tts_engine.update_options(language=language)
     session = AgentSession(vad=ctx.proc.userdata["vad"], stt=stt_engine, tts=tts_engine, llm=GraphLLM(),
-                           min_endpointing_delay=CFG.min_endpointing_s)
+                           min_endpointing_delay=CFG.min_endpointing_s, **phone_session_kwargs())
     agent = AdvisorAgent(gate, locale, ctx.room, turn, phone=phone)
+
+    async def hang_up():
+        try:
+            await ctx.delete_room()
+        except Exception:
+            ctx.shutdown("call ended before verification")
+    agent.end_call = hang_up
+    on_language = lambda code: agent.apply_language(code)  # noqa: E731  (fallback TTS follows the menu choice)
     if record is not None:
-        phone.verifier = gate.verifier = cv.KeypadVerifier(record, key, speak=agent._say,
-                                                           speak_private=agent._say_private)
+        phone.verifier = phone.keypad = gate.verifier = cv.KeypadVerifier(record, key, speak=agent._say_key,
+                                                                          on_language=on_language)
+    else:
+        phone.keypad = cv.KeypadCall(speak=agent._say_key, language=pt.DEFAULT_LANGUAGE, on_language=on_language)
     # Keypad digits come only from LiveKit SIP DTMF room events, never from the speech path.
-    ctx.room.on("sip_dtmf_received", cv.dtmf_handler(participant.identity, phone.verifier))
+    ctx.room.on("sip_dtmf_received", cv.dtmf_handler(participant.identity, phone.keypad))
 
     @session.on("agent_state_changed")
     def _a(ev):
@@ -493,8 +651,7 @@ async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant):
     wire_tone_events(session, agent)
     ctx.add_shutdown_callback(_end_tone(agent))
     await session.start(agent=agent, room=ctx.room)
-    await agent._say(PHONE_GREETING)  # pre-recorded, like every line before verification
-    agent.start_verification()
+    agent.start_verification()  # greeting (pre-recorded, record's language) -> press 9 window -> 4 digits
 
 
 if __name__ == "__main__":

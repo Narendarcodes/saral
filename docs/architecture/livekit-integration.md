@@ -74,46 +74,65 @@ There is no local fallback: without the Frappe credential the worker raises befo
 
 ## Phone callers: keypad verification (SIP + DTMF)
 
-A phone call joins the room as a LiveKit SIP participant, so there is no `Voice Session` row and no browser login.
-The worker (`apps/voice/agent_worker.py`, `phone_entrypoint`) takes the phone path instead
-(`apps/voice/caller_verification.py`):
+Call flow v2, "language first, then 4 digits". A phone call joins the room as a LiveKit SIP participant, so there is
+no `Voice Session` row and no browser login. The worker (`apps/voice/agent_worker.py`, `phone_entrypoint`) takes the
+phone path instead (`apps/voice/caller_verification.py`, lines in `apps/voice/prompt_texts.py`):
 
-1. **Caller ID.** The SIP from-number (participant attribute `sip.phoneNumber`) is looked up, by its HMAC, in a
-   directory of synthetic applicants (`CALLER_DIRECTORY`). An unknown or hidden number is told that no account details
-   can be shared on this call and is offered a person. With no key or directory, nobody can be verified (fails closed).
-2. **`verify_caller` (keypad only).** "Press 1 for your loan application, or 2 for your bank account." then "Enter the
-   last 4 digits." Only the factor the caller chose is checked. Keys come from the
-   room event `sip_dtmf_received` (`rtc.SipDTMF`: `digit`, `code`, `participant`; only the caller's own presses count),
-   never from speech, and `GetDtmfTask` (which also accepts spoken digits through the LLM) is not used.
-3. **Read-back.** "You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype." is stitched from pre-recorded clips
-   (`you_entered`, `digit_4`, `digit_7`, `digit_2`, `digit_9`, `confirm`, 120 ms apart) and played with
-   `session.say(masked_text, audio=...)`, so the room transcript shows `You entered ****.` and nothing is added to
-   the chat context. `*` clears the entry; `#` is ignored.
-4. **Check.** HMAC-SHA256(`CALLER_VERIFY_HMAC_KEY`, salt|factor|last4), compared in constant time; the directory
-   holds hashes only (`scripts/voice/seed_caller_directory.py`). Three confirmed mismatches lock verification for
-   the rest of the call and offer a person. No keypress for 8 s plays a nudge; 15 s ends the attempt (saying
-   "verify" starts again).
-5. **Gate.** Until the caller is verified, `llm_node` never calls the advisory server (`VerifiedGate.fresh()` raises),
-   so no application fact can be spoken. The LLM side only ever sees an outcome word (`verified`, `locked`,
-   `timeout`, `unknown_caller`, `unavailable`); digits are never logged (`****`).
+1. **Caller ID.** The from-number is read from the participant attributes (`sip.phoneNumber`, then `sip.from`,
+   `sip.fromUser`, `sip.callerId`, `sip.callerNumber`, then a `sip_<number>` identity) and normalised to E.164:
+   `tel:`/`sip:` prefixes, `@host`, `;params`, spaces, dashes and brackets are dropped, and `+91XXXXXXXXXX`,
+   `91XXXXXXXXXX`, `0XXXXXXXXXX` and a bare 10-digit Indian number are the same key. It is looked up, by its HMAC, in a
+   directory of synthetic applicants (`CALLER_DIRECTORY`). Each record names the language its call opens in (one of
+   the ten codes below, default `en-IN`, stored in plaintext). The worker logs which reason fired, with the number
+   masked to its last 2 digits: key missing, `CALLER_DIRECTORY` not set, directory unreadable (error class only), no
+   caller ID, no match, or a match with its language. With no key or directory nobody can be verified (fails closed).
+2. **Greeting, in the record's language, with no name or account data.** "Welcome to Saral. To change language, press
+   nine." An unknown caller (or no directory) hears it in en-IN.
+3. **Language menu (press 9).** A 9 keyed during the greeting or within 3 s after it opens the menu: each option is said
+   in its own language, in key order: 1 English (en-IN), 2 Hindi (hi-IN), 3 Telugu (te-IN), 4 Tamil (ta-IN), 5 Kannada
+   (kn-IN), 6 Malayalam (ml-IN), 7 Marathi (mr-IN), 8 Bengali (bn-IN), 9 Gujarati (gu-IN), 0 Punjabi (pa-IN). An invalid
+   key or no key in 8 s replays it once, then the call continues in the current language. Once the enter-digits prompt
+   has started, 9 is an ordinary digit (a last-4 can start with 9).
+4. **`verify_caller` (keypad only, one factor).** "Please enter the last four digits of your loan application number."
+   No factor menu, no bank-account path and no read-back: a wrong entry hears "That didn't match. Please try again."
+   Keys come from the room event `sip_dtmf_received` (`rtc.SipDTMF`: `digit`, `code`, `participant`; only the caller's
+   own presses count), never from speech; `GetDtmfTask` is not used. `*` clears the entry; `#` is ignored.
+5. **Check.** HMAC-SHA256(`CALLER_VERIFY_HMAC_KEY`, salt|application|last4), compared in constant time; the directory
+   holds hashes only (`scripts/voice/seed_caller_directory.py`). Three mismatches lock verification: the locked line
+   plays once and the call ends. No keypress for 8 s plays the keypad nudge; 15 s ends the attempt (neither counts as a
+   mismatch). Saying something after a timeout starts one more attempt; a second timeout ends the call.
+6. **Speech before verification is ignored.** `llm_node` never calls the advisory server (`VerifiedGate.fresh()`
+   raises) and speaks nothing for a caller's "hello": the only reaction is the keypad nudge, at most once per prompt.
+   Every pre-verification clip is played with `allow_interruptions=False`, so speech cannot cut a line off and make it
+   restart. A refusal (unknown caller, unavailable, locked) is spoken once, then the worker deletes the room (hang-up).
+   The LLM side only ever sees an outcome word; digits are never logged (`****`).
+7. **Verified.** The pre-recorded "Thank you, you're verified." plays in the chosen language. Then the session fixes
+   that language: Prisma STT is swapped (`Agent.update_options(stt=...)`) for one with `language_code`
+   "<language>,en-IN" (en-IN alone for English), Timbre TTS speaks the language, and every turn sends
+   `reply_language` to the advisory server, whose LLM is told to write in it (`prompts.answer_language`; the graph's
+   fixed templates exist in en / hi / te, so the other seven languages keep English templates). The live agent then
+   greets the caller by first name (live TTS); the name comes from the phone assertion (`first_name`), which is only
+   requested after verification. The tone engine starts only now; its closed-set lines exist in en / hi / te and are
+   skipped for the other seven languages.
 
-**Pre-recorded auth phase.** Every line a phone caller hears before verification succeeds (greeting, menu, enter,
-read-back, cleared / retype / confirm-again, nudge, mismatch, locked, timeout, unknown caller, unavailable,
-needs-verification, and "Thank you, you're verified. Connecting you to Saral.") is a clip rendered once with Timbre
-v3.0, voice Tarika, 16 kHz mono, and committed under `apps/voice/prompts/<locale>/` with a `manifest.json` (text,
-sha256 of the text, duration). `apps/voice/auth_prompts.py` looks a clip up by its exact text; the worker plays it as
-LiveKit audio frames (`_say`, `_say_private`, and `tts_node` for gate lines) and never calls the advisory graph or
-live TTS in this phase. A clip that is missing, unreadable or rendered from different text (hash mismatch) is spoken
-with live TTS of the same fixed text and logs a warning (never a digit). Only en-IN exists: the phone flow is English
-and the repo has no Hindi or Telugu wording for these lines yet. Re-render after changing any line:
+**Barge-in on the phone.** SIP sessions pass `min_interruption_duration=0.8`, `false_interruption_timeout=1.5` and
+`resume_false_interruption=True` (only the keywords the installed livekit-agents accepts), so a short echo of our own
+TTS on the line does not cut the agent off after verification.
+
+**Pre-recorded auth phase.** Every line a phone caller hears before verification succeeds (greeting, language-menu
+option, enter, cleared, nudge, no-match, verified, locked, timeout, unknown caller, unavailable, needs-verification) is
+a clip rendered once with Timbre v3.0, voice Tarika, 16 kHz mono, in each of the ten languages (12 clips x 10), and
+committed under `apps/voice/prompts/<locale>/` with a `manifest.json` (text, sha256 of the text, duration). Numbers read
+aloud are written as words. `apps/voice/auth_prompts.py` looks a clip up by key (or exact text) per language; the
+worker plays it as LiveKit audio frames and never calls the advisory graph or live TTS in this phase. A clip that is
+missing, unreadable or rendered from different text (hash mismatch) is spoken with live TTS of the same fixed text in
+its own language and logs a warning (never a digit). Re-render after changing any line (Gnani allows one active TTS
+request per key, so the script renders sequentially):
 
 ```bash
-GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py            # renders changed or missing clips only
-GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py --force --only digit_6
+GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py --prune          # all ten languages, changed clips only
+GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py --locale te-IN --force --only enter
 ```
-
-One Timbre request per clip (about 30). Digit clips keep only their first spoken word, because Timbre sometimes
-repeats a lone word after a pause. After verification the same session continues as the normal dynamic agent.
 
 **Tone after verification.** Once a caller is verified (phone: keypad; browser: the `Voice Session` row), the worker
 starts the tone engine (`apps/voice/tone_wiring.py` -> `tone_hook.py`). Each turn it plans a tier from live signals
@@ -127,11 +146,13 @@ in the worker, so the hook runs without a record), `respond()` templates, and th
 **SIP configuration.** The provider trunk must send DTMF as RFC 4733 / RFC 2833 `telephone-event` (not in-band audio);
 LiveKit SIP relays those tones to the room as `sip_dtmf_received`. If your trunk or dispatch rule has a DTMF
 forwarding setting, it must be on, and the dispatch rule must not hide the caller's number (`hide_phone_number`
-off), or every caller is treated as unknown. Phone prompts are English only.
+off), or every caller is treated as unknown.
 
 **Phone assertion.** After verification the worker asks Frappe for an assertion at
 `loan_advisory_portal.api.voice.phone_assertion` (`PhoneAssertions`) with the applicant and application the
-directory record names, the room, the participant identity and the factor that was verified (never a digit). It
+directory record names, the room, the participant identity and the factor that was verified (`application`, never a
+digit; the v1 `bank_account` factor is refused). The response adds the Customer's `first_name` when it has a usable
+one, for the post-verification greeting. It
 authenticates exactly like `voice_assertion` (an `Agent Integration` API key) and returns the same shape: a 60-second
 assertion for that one customer and application, with thread `phone-<hash of room and identity>`. Frappe cannot see
 the keypad, so the integration account vouches for the verification. Frappe refuses unless the site sets
@@ -142,8 +163,8 @@ identity (which can embed the caller's number). Budgets: 600/hour per service ac
 site turns the flag on, a verified caller hears the "couldn't reach the advisory service" line (fails closed). The
 "connect you to a member of our team" offer is spoken only; no SIP transfer is wired.
 
-**Demo-grade.** Four digits are 10,000 combinations and caller ID can be spoofed. This shows the flow; it is not
-production authentication.
+**Demo-grade, synthetic data only.** Four digits are 10,000 combinations and caller ID can be spoofed. This shows the
+flow on synthetic applicants; it is not production authentication.
 
 ## Privacy rules that hold
 

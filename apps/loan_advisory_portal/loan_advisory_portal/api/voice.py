@@ -41,7 +41,7 @@ TERMINAL = ("Ended", "Expired")
 PHONE_FLAG = "voice_phone_assertions"
 RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,139}$")
 LIVEKIT_NAME = re.compile(r"^[A-Za-z0-9_+][A-Za-z0-9_.:@+\-]{0,127}$")
-VERIFIED_FACTORS = ("application", "bank_account")
+VERIFIED_FACTORS = ("application",)  # call flow v2: last 4 of the loan application number only
 INACTIVE_PROFILE = ("Suspended", "Closed")
 
 
@@ -175,6 +175,7 @@ def phone_assertion(
 	limits.enforce("phone-assertion-applicant", 240, 3600, identity=f"phone:{applicant}")
 
 	literacy, locale = (profile.literacy, profile.preferred_locale) if profile else (None, None)
+	first_name = _first_name(frappe.db.get_value("Customer", applicant, "customer_name"))
 	call = hashlib.sha256(f"{room}|{identity}".encode("utf-8")).hexdigest()[:32]
 	thread = f"phone-{call}"
 	result = assertion.mint(sub, applicant, application, thread, literacy, locale)
@@ -186,4 +187,15 @@ def phone_assertion(
 			"session_id": call,
 		}
 	)
+	if first_name:
+		# Only ever returned here, i.e. after keypad verification: the worker greets the caller by it.
+		result["first_name"] = first_name
 	return result
+
+
+def _first_name(customer_name) -> str | None:
+	"""The first word of the Customer name if it looks like a name; None otherwise (the greeting then has none)."""
+	word = str(customer_name or "").strip().split(" ")[0]
+	if not word or len(word) > 40 or any(ch.isdigit() for ch in word) or "@" in word:
+		return None
+	return word

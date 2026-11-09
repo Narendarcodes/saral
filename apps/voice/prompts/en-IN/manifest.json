@@ -7,124 +7,54 @@
   "speed": 1.0,
   "clips": {
     "cleared": {
-      "text": "Cleared. Enter the last 4 digits.",
-      "sha256": "27416a907d5d182a7390a1253a34ea1facfba430af0321637af71f8561f32a00",
-      "duration_s": 2.455
-    },
-    "confirm": {
-      "text": "Press 1 to confirm or 2 to retype.",
-      "sha256": "1209cd8db9bffa0e559e7d9524746f30a84efcbea76d66d3b7d62c26fdc8fda7",
-      "duration_s": 3.325
-    },
-    "confirm_again": {
-      "text": "Press 1 to confirm or 2 to retype.",
-      "sha256": "1209cd8db9bffa0e559e7d9524746f30a84efcbea76d66d3b7d62c26fdc8fda7",
-      "duration_s": 2.916
-    },
-    "digit_0": {
-      "text": "Zero",
-      "sha256": "973d0c649aa97a0635e387399f32c49abdaa7b2e812a65812255d1ed863b1604",
-      "duration_s": 0.46
-    },
-    "digit_1": {
-      "text": "One",
-      "sha256": "8b12507783d5becacbf2ebe5b01a60024d8728a8f86dcc818bce699e8b3320bc",
-      "duration_s": 0.66
-    },
-    "digit_2": {
-      "text": "Two",
-      "sha256": "94a72c074cfe574742c9e99e863322f73feff82981d065ff65a0308f44f19f62",
-      "duration_s": 0.351
-    },
-    "digit_3": {
-      "text": "Three",
-      "sha256": "926f52d1c1e19c0c58a7d39bf234a0d239352f5acfa26c73989d9c3845614999",
-      "duration_s": 0.354
-    },
-    "digit_4": {
-      "text": "Four",
-      "sha256": "12f5aedc5d39035cfd80b4569a521de7b4b577cf206326a6fced1572006c4b04",
-      "duration_s": 0.508
-    },
-    "digit_5": {
-      "text": "Five",
-      "sha256": "6ab523c52d1407cc4de015423091d1a76995f01d32d6c4b36616df23da744a0e",
-      "duration_s": 0.627
-    },
-    "digit_6": {
-      "text": "Six",
-      "sha256": "58ea8edc90ea4f1e39f30ab1a1962f28d21d57a6105c59145cd227334022ccb2",
-      "duration_s": 0.673
-    },
-    "digit_7": {
-      "text": "Seven",
-      "sha256": "9092f169630f2d453e0e56ea1eec773b7dc3996ea2fcf311e00a26b6bffddc4d",
-      "duration_s": 0.55
-    },
-    "digit_8": {
-      "text": "Eight",
-      "sha256": "7f9966f44789da6cedfc5ae2e63a0475be88d12144788bffad72a13209f50efd",
-      "duration_s": 0.446
-    },
-    "digit_9": {
-      "text": "Nine",
-      "sha256": "13f6538146b61811a725846bd21c206630da885293a8ea3cdc36c2d8c759477d",
-      "duration_s": 0.54
+      "text": "Cleared. Please enter the last four digits again.",
+      "sha256": "09f7919b0b7b35af305d8103542c3829c9d9bdcae438ea09f0e4ea77be326a36",
+      "duration_s": 3.406
     },
     "enter": {
-      "text": "Enter the last 4 digits.",
-      "sha256": "69f244951d978a24076f47f756a7f5da76ccac9a631d7ae9e9e80812bedb1395",
-      "duration_s": 1.521
+      "text": "Please enter the last four digits of your loan application number.",
+      "sha256": "eadb731fc56e85ee9ebed0415587c4ecaf5743e4139b740aa2f5bd0ced183c05",
+      "duration_s": 3.919
     },
     "greeting": {
-      "text": "Hello, this is Saral, your loan assistant.",
-      "sha256": "59b5720cb4130bc45ef1d764e636b6033f11d962947df581336a4a3c408f2116",
-      "duration_s": 2.608
+      "text": "Welcome to Saral. To change language, press nine.",
+      "sha256": "7144e8c70ca17f2798a47d23c38ed6d07f8e3542bb6cc4ec3da19b0a74418892",
+      "duration_s": 2.927
     },
     "locked": {
       "text": "I couldn't verify you, so I can't discuss account details on this call. I can connect you to a member of our team instead.",
       "sha256": "d953e0081d9e6bf270bb14318397fc65ac99fe356d3fd2e0e4eb635360dc6dc1",
-      "duration_s": 6.771
-    },
-    "menu": {
-      "text": "Press 1 for your loan application, or 2 for your bank account.",
-      "sha256": "65d6339f33e8b1d9c4f94bd45370a71841282934fa8b9505bb4a0a1233ca58d7",
-      "duration_s": 3.817
-    },
-    "menu_again": {
-      "text": "Please press 1 for your loan application, or 2 for your bank account.",
-      "sha256": "91c5a71be970426e3c2cb2dd239cfee3f14b2190f1727f05b2e5e6ba4fe57dde",
-      "duration_s": 3.581
+      "duration_s": 7.001
     },
     "needs_verification": {
       "text": "Before I can discuss your account, I need to verify you.",
       "sha256": "dc02308139dba4c626cbcff239869839e5aaa5cd1c0aa0e3ca6292be0ac45bcb",
-      "duration_s": 3.618
+      "duration_s": 3.227
     },
     "no_match": {
-      "text": "Those digits don't match our records. Please try again.",
-      "sha256": "07e409db164b1b1a972a9eb4ce98d40dc939a2a5653e403eab4858f8fc11fcc1",
-      "duration_s": 3.494
+      "text": "That didn't match. Please try again.",
+      "sha256": "b8ce68bcd232601fcf9379b8b87f07451242487899051cc60c2d7474d03b8d37",
+      "duration_s": 2.662
     },
     "nudge": {
       "text": "Please use your phone keypad.",
       "sha256": "9d77e7ebd1d0184db8ca698fde50192d100600327c872e3a035f485c8dd2bbf3",
-      "duration_s": 1.513
+      "duration_s": 1.577
     },
-    "retype": {
-      "text": "Okay. Enter the last 4 digits again.",
-      "sha256": "b9f9ce5f6e9bb598ad56ea187d69688e6eb43e3172a975d7e37a6ca2d3341291",
-      "duration_s": 2.325
+    "option": {
+      "text": "For English, press one.",
+      "sha256": "ec9b0a19d591f95565ca7513f3248c70255f109474baa01b6878c02d74e85b27",
+      "duration_s": 1.84
     },
     "timeout": {
-      "text": "I didn't receive any keypresses, so I've stopped verification. I can't share account details until you're verified. Say verify to try again, or I can connect you to a member of our team.",
-      "sha256": "e1cfbb2885c5dcf20e9606ae1647f65d8c1f87e775bf3a4d4bd0803ee8e02fe9",
-      "duration_s": 10.771
+      "text": "I didn't receive any keypresses, so I've stopped verification. Please say something to try again, or I can connect you to a member of our team.",
+      "sha256": "1e97b83bec4a298d589c3a09e8f6b9814169ee46482b02f856c559503c596a6e",
+      "duration_s": 7.403
     },
     "unavailable": {
       "text": "I'm sorry, I can't verify callers right now, so I can't share account details on this call. I can connect you to a member of our team.",
       "sha256": "1a8576a87b83c23aee305885159271def181ddd54c42d2b6396693a0b8a306f3",
-      "duration_s": 7.377
+      "duration_s": 8.314
     },
     "unknown_caller": {
       "text": "I'm sorry, I can't find an account linked to this phone number, so I can't share account details on this call. I can connect you to a member of our team.",
@@ -132,14 +62,9 @@
       "duration_s": 9.142
     },
     "verified": {
-      "text": "Thank you, you're verified. Connecting you to Saral.",
-      "sha256": "a0ba015aa06da551eac0d6bbe49e0df442e78d598f4f5d0353e3a59845ddb8ea",
-      "duration_s": 3.192
-    },
-    "you_entered": {
-      "text": "You entered",
-      "sha256": "820bb8526b4e66ea6c8305359d631f9c28f30ed7a9c0cfd84e0371e78ff0f1b4",
-      "duration_s": 0.808
+      "text": "Thank you, you're verified.",
+      "sha256": "6d983cec47b1732279f5914f09f7dc090e5466f5a855699dc968e4cc9a9d1b14",
+      "duration_s": 1.627
     }
   }
 }
