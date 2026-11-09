@@ -6749,3 +6749,73 @@ textarea:focus-visible {
 		margin-top: -64px;
 	}
 }
+
+
+/* ---------- Assistant: full-height chat ----------
+   The conversation owns the screen: the page itself does not scroll, the message log does, and
+   the composer stays at the bottom. Prefixed with .workspace-shell so these win over the
+   island's assistant.css, which loads after this file. */
+.workspace-shell .workspace {
+	height: calc(100dvh - 52px);
+	min-height: 0;
+}
+
+.workspace-shell .workspace__head {
+	flex: 0 0 auto;
+}
+
+.workspace-shell .workspace__body {
+	flex: 1 1 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.workspace-shell .assistant__body,
+.workspace-shell .assistant__body > .assistant__grid {
+	flex: 1 1 0;
+	height: auto !important;
+	min-height: 0 !important;
+	overflow: hidden !important;
+}
+
+.workspace-shell .assistant .chat {
+	flex: 1 1 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.workspace-shell .assistant .log {
+	flex: 1 1 0;
+	min-height: 0;
+	max-height: none;
+	overflow-y: auto;
+}
+
+.workspace-shell .assistant .composer {
+	flex: 0 0 auto;
+}
+
+.callsaral {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 2px var(--s3);
+	margin: 0;
+}
+
+.callsaral__link {
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+	.workspace-shell .workspace {
+		height: calc(100dvh - 64px - 62px - 40px);
+	}
+}
+
+@media (max-width: 640px) {
+	.callsaral .small {
+		font-size: 0.78rem;
+	}
+}
