@@ -311,6 +311,9 @@ capped at 3 per session (ADR-0010), and is labelled "Estimate only, your applica
 
 - **Form:** English (ADR-0007).
 - **Chat:** English, Hindi and Telugu, in native script or romanised. Replies come in the borrower's language.
+- **Voice:** Saral's voice runs in all 10 languages Gnani Prisma and Timbre support (English, Hindi, Telugu, Tamil,
+  Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi). Evaluations and native-speaker checks were done in Telugu
+  and Hindi only; the other languages are supported but not yet evaluated.
 - **Style:** answer first, at most three points, no internal terms, no cut-offs (ADR-0006). The segment from the
   borrower's bureau record only picks the explanation style; it is never shown to the borrower.
 
@@ -364,6 +367,17 @@ te-IN, code-mixed English) and **Timbre v3.0** text-to-speech (voice `Tarika`, s
 official `livekit-plugins-gnani` plugin. Silero VAD handles turn-taking and barge-in; the reply still comes from the
 same LangGraph agent and guards, whose LLM is set by `SARAL_LLM_*` (Groq is one of the providers). No speech model
 runs locally. Set `GNANI_API_KEY` and, optionally, the `GNANI_*` settings in `.env.example`.
+
+**Languages.** Saral's voice runs in all 10 languages Gnani Prisma and Timbre support (English, Hindi, Telugu, Tamil,
+Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi). Evaluations and native-speaker checks were done in Telugu
+and Hindi only; the other languages are supported but not yet evaluated.
+
+**Numbers in speech.** Before Timbre speaks a reply in an Indian language, rupee amounts, percentages and plain
+numbers in the text are written out as words in that language ("₹4,100" -> "నాలుగు వేల వంద రూపాయలు" / "चार हज़ार एक सौ
+रुपये"; `apps/voice/spoken_numbers.py`); IDs, phone numbers and codes stay as digits, English is left to Timbre, and
+only the TTS request changes (transcripts, logs and the LLM context keep the digits). The Telugu and Hindi forms were
+written for native review; the other seven languages' tables are not yet native-reviewed.
+`GNANI_TTS_VERBALISE_NUMBERS=off` turns it off.
 
 ```bash
 python -m pip install -r apps/voice/requirements.txt

@@ -72,6 +72,19 @@ LiveKit room ── participant metadata {session_id, user, customer, applicatio
 
 There is no local fallback: without the Frappe credential the worker raises before greeting.
 
+## Languages
+
+Saral's voice runs in all 10 languages Gnani Prisma and Timbre support (English, Hindi, Telugu, Tamil, Kannada,
+Malayalam, Marathi, Bengali, Gujarati, Punjabi). Evaluations and native-speaker checks were done in Telugu and Hindi
+only; the other languages are supported but not yet evaluated.
+
+Before Timbre speaks a reply in an Indian language, rupee amounts, percentages and plain numbers in the text are
+written out as words in that language ("₹4,100" -> "నాలుగు వేల వంద రూపాయలు" / "चार हज़ार एक सौ रुपये";
+`apps/voice/spoken_numbers.py`); IDs, phone numbers and codes stay as digits, English is left to Timbre, and only the
+TTS request changes (transcripts, logs and the LLM context keep the digits). The Telugu and Hindi forms were written
+for native review; the other seven languages' tables are not yet native-reviewed. `GNANI_TTS_VERBALISE_NUMBERS=off`
+turns it off.
+
 ## Phone callers: keypad verification (SIP + DTMF)
 
 Call flow v2, "language first, then 4 digits". A phone call joins the room as a LiveKit SIP participant, so there is
