@@ -48,6 +48,14 @@ background.
 Saral began as a CBIT AI/ML team capstone (VaaniLabs.AI). This repository is Golla Narendar's own build and
 extension of it; teammates' modules (document OCR, customer segmentation, the functional write-up) are not included.
 
+## How it fits
+
+1. **Borrower portal** (Frappe 16 + Lending, `apps/loan_advisory_portal/`) takes the application; the **ZEN rules engine** (`decision_engine/`, `ops/decision_runner.py`) makes and records the decision.
+2. **Agent server** (one LangGraph graph on the standard library, `apps/api/src/loan_advisory/agent/`) explains that recorded decision, with cited policy background from RAG (`rag/`); it accepts only a 60-second assertion signed by Frappe.
+3. **Chat island** (CopilotKit, `apps/web/assistant/`) reaches the agent through the AG-UI runtime (`apps/runtime/`).
+4. **Voice and phone** (`apps/voice/`): a LiveKit Agents worker in front of the same agent and guards. Gnani Prisma v3 speech-to-text, Timbre v3 text-to-speech (voice Tarika) and keypad caller verification for phone calls are on branch `feat/gnani-voice`.
+5. **Synthetic data only** (`synthetic_data/`, `ops/`); phone caller verification (caller ID + last 4 digits) is demo-grade, not production authentication.
+
 > **Read this first**
 > - **All applicant data is synthetic.** No real person, PAN, Aadhaar number, employer or bank account is used.
 >   Synthetic PANs start `ZZ`, Aadhaar numbers start with 0 or 1 (never issued by UIDAI), and emails use
@@ -60,6 +68,7 @@ extension of it; teammates' modules (document OCR, customer segmentation, the fu
 
 ## Contents
 
+- [How it fits](#how-it-fits)
 - [What Saral does](#what-saral-does)
 - [Run it locally](#run-it-locally)
 - [Deployment options](#deployment-options)
