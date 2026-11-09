@@ -26,6 +26,8 @@ Voice worker speech (Gnani only; GnaniSpeechSettings):
     GNANI_TTS_SPEED          0.85-1.15, default 1.0
     GNANI_TTS_SAMPLE_RATE    8000 | 16000 | 22050 (default) | 44100
     GNANI_TTS_METHOD         sse (default) | websocket | rest
+    GNANI_TTS_VERBALISE_NUMBERS  on (default) | off: in te-IN / hi-IN speech, say rupee amounts, percentages and numbers
+                             as Telugu / Hindi words (apps/voice/spoken_numbers.py); the TTS request only, never the transcript
 """
 import os
 from dataclasses import dataclass, fields
@@ -133,6 +135,7 @@ class GnaniSpeechSettings:
     tts_speed: float = 1.0            # 0.85-1.15; the tone engine will set this per turn later
     tts_sample_rate: int = 22050
     tts_method: str = "sse"           # SSE streams chunks; documented with model/voice/language/speed
+    tts_verbalise_numbers: bool = True  # te-IN / hi-IN: "₹4,100" is sent to Timbre as "నాలుగు వేల వంద రూపాయలు"
 
     def __post_init__(self):
         if self.stt_model not in GNANI_STT_MODELS:
@@ -176,7 +179,17 @@ class GnaniSpeechSettings:
                    tts_voice=g("GNANI_TTS_VOICE", d.tts_voice), tts_language=g("GNANI_TTS_LANGUAGE", d.tts_language),
                    tts_speed=_f(env, "GNANI_TTS_SPEED", d.tts_speed),
                    tts_sample_rate=int(_f(env, "GNANI_TTS_SAMPLE_RATE", d.tts_sample_rate)),
-                   tts_method=g("GNANI_TTS_METHOD", d.tts_method))
+                   tts_method=g("GNANI_TTS_METHOD", d.tts_method),
+                   tts_verbalise_numbers=_flag(g("GNANI_TTS_VERBALISE_NUMBERS", "on"), "GNANI_TTS_VERBALISE_NUMBERS"))
+
+
+def _flag(raw: str, key: str) -> bool:
+    value = raw.strip().lower()
+    if value in ("1", "true", "on", "yes"):
+        return True
+    if value in ("0", "false", "off", "no"):
+        return False
+    raise ValueError(f"{key} must be on or off, got {raw!r}")
 
 
 def check_tts_speed(speed: float) -> float:

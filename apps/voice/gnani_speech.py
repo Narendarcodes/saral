@@ -9,6 +9,9 @@ The plugin covers transport, retries and audio framing. Two gaps in 1.8.11 are c
 * TTS: the plugin defaults to the retired `timbre-v2.0` with the voice `Pranav`, sends `language` for v2.5 only and
   never sends `speed`. `TimbreTTS` always takes an explicit model and voice, sends `language` for v2.5 and v3.0, and
   sends `speed` (0.85-1.15) so the tone engine can change it per turn with `set_speed()`.
+* Numbers: Timbre reads digits inside Telugu / Hindi text unevenly, so for te-IN and hi-IN the text sent to Timbre has
+  its numbers written out as words ("₹4,100" -> "నాలుగు వేల వంద రూపాయలు"; spoken_numbers.py). Only the request body
+  changes; the transcript, logs and LLM context keep the digits. GNANI_TTS_VERBALISE_NUMBERS=off turns it off.
 
 Authentication: the plugin reads GNANI_API_KEY from the environment. Nothing here reads, stores or prints the key.
 """
@@ -29,6 +32,7 @@ from livekit.plugins.gnani import stt as gnani_stt
 from livekit.plugins.gnani import tts as gnani_tts
 
 from loan_advisory.agent.settings import GnaniSpeechSettings, check_tts_speed
+from spoken_numbers import verbalise
 
 PLUGIN_VERSION = gnani.__version__
 
@@ -110,13 +114,17 @@ class PrismaSTT(gnani.STT):
 @dataclass
 class TimbreOptions(gnani_tts.GnaniTTSOptions):
     speed: float = 1.0
+    verbalise_numbers: bool = False  # te-IN / hi-IN: numbers as words in the request text (spoken_numbers.py)
 
 
 _PLUGIN_BUILD_PAYLOAD = gnani_tts._build_payload
 
 
 def timbre_payload(opts: gnani_tts.GnaniTTSOptions, text: str) -> dict:
-    """The plugin's request body, plus `language` for Timbre v3.0 and `speed`, for TimbreTTS options only."""
+    """The plugin's request body, plus `language` for Timbre v3.0 and `speed`, for TimbreTTS options only; with
+    `verbalise_numbers`, a te-IN / hi-IN text has its numbers written out as words (this body only)."""
+    if isinstance(opts, TimbreOptions) and opts.verbalise_numbers:
+        text = verbalise(text, opts.language)
     payload = _PLUGIN_BUILD_PAYLOAD(opts, text)
     if isinstance(opts, TimbreOptions):
         if opts.language is not None:
@@ -141,7 +149,7 @@ class TimbreTTS(gnani.TTS):
     """Gnani Timbre TTS with an explicit model and voice (never the plugin's v2.0 / Pranav defaults) and a speed."""
 
     def __init__(self, *, model: str, voice: str, language: str, speed: float = 1.0, sample_rate: int = 22050,
-                 method: str = "sse") -> None:
+                 method: str = "sse", verbalise_numbers: bool = False) -> None:
         if model not in ("timbre-v3.0", "timbre-v2.5"):
             raise ValueError(f"Timbre model {model!r} is not allowed (timbre-v2.0 is retired)")
         if not voice:
@@ -150,7 +158,7 @@ class TimbreTTS(gnani.TTS):
         super().__init__(model=model, voice=voice, language=language, sample_rate=sample_rate, container="raw",
                          encoding="linear_pcm", synthesize_method=method)
         base = {f.name: getattr(self._opts, f.name) for f in fields(gnani_tts.GnaniTTSOptions)}
-        self._opts = TimbreOptions(**base, speed=check_tts_speed(speed))
+        self._opts = TimbreOptions(**base, speed=check_tts_speed(speed), verbalise_numbers=bool(verbalise_numbers))
 
     @property
     def voice(self) -> str:
@@ -194,7 +202,8 @@ def build_stt_for_language(cfg: GnaniSpeechSettings, language: str) -> PrismaSTT
 
 def build_tts(cfg: GnaniSpeechSettings, locale: str) -> TimbreTTS:
     return TimbreTTS(model=cfg.tts_model, voice=cfg.tts_voice, language=cfg.tts_language_for(locale),
-                     speed=cfg.tts_speed, sample_rate=cfg.tts_sample_rate, method=cfg.tts_method)
+                     speed=cfg.tts_speed, sample_rate=cfg.tts_sample_rate, method=cfg.tts_method,
+                     verbalise_numbers=cfg.tts_verbalise_numbers)
 
 
 __all__ = ["PLUGIN_VERSION", "PrismaSTT", "PrismaSpeechStream", "TimbreOptions", "TimbreTTS", "build_stt",
