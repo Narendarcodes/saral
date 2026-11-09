@@ -1,0 +1,47 @@
+# Saral
+
+> Saral is a loan advisory agent for Indian personal-loan borrowers. A deterministic rules engine (ZEN) makes the
+> decision; a LangGraph agent explains it in plain English, Hindi or Telugu, suggests next steps, runs what-if
+> estimates and answers policy questions with citations. It is reached through a Frappe borrower portal with a
+> CopilotKit chat island, and by voice through a LiveKit worker. All data is synthetic.
+
+Saral explains, it never decides. Bajaj Finance is a public reference lender, not a partner. Thresholds are a
+prototype. Voice speech on branch `feat/gnani-voice` uses Gnani Prisma v3 (speech-to-text) and Timbre v3
+(text-to-speech, voice Tarika); phone callers verify on the keypad (caller ID plus the last 4 digits of one factor),
+which is demo-grade authentication.
+
+## Start here
+
+- [README](README.md): what Saral does, how it fits, how to run it, evaluation results, limitations
+- [AGENTS.md](AGENTS.md): rules, repository map, run and test commands for coding agents
+- [APPROACH.md](APPROACH.md): design decisions and why
+- [Reviewer guide](docs/DEMO_GUIDE.md): test accounts and one synthetic applicant per decision path
+
+## Architecture
+
+- [Architecture index](docs/architecture/README.md): components and diagrams
+- [Repository structure](docs/architecture/repository-structure.md): where code lives
+- [Frappe borrower platform](docs/architecture/frappe-borrower-platform.md): portal and doctypes
+- [CopilotKit and AG-UI](docs/architecture/copilotkit-agui-integration.md): chat island to agent
+- [LiveKit voice](docs/architecture/livekit-integration.md): voice worker, assertions, phone verification
+- [Assertion security](docs/architecture/assertion-security-and-scaling.md): Frappe-signed 60-second assertions
+
+## Development
+
+- [Setup](docs/development/setup.md): step-by-step local install, including Windows
+- [Environment variables](docs/development/environment-variables.md): every variable, names only
+- [Developer reference](docs/development/developer-reference.md): configuration and test reference
+- [Testing](docs/testing/README.md): test plans
+
+## Policy and evaluation
+
+- [Agent limitations](docs/AGENT_LIMITATIONS.md): known failure cases
+- [Final evaluation](docs/saral/FINAL_EVAL_20261104.md): RAG and agent results
+- [ZEN design](docs/saral/ZEN_DESIGN.md): the rules engine
+- [Reason disclosure policy](docs/saral/REASON_DISCLOSURE_POLICY.md): what a borrower may be told
+
+## Optional
+
+- [Synthetic personas](docs/data/synthetic_personas.md): how synthetic applicants are built
+- [Bajaj reference lender](docs/policy/bajaj_reference_lender.md): public documents used as the reference
+- [Deployment](docs/deployment/README.md): hosting notes
