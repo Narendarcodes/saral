@@ -189,7 +189,8 @@ def test_full_keypad_flow_through_the_agent_keeps_digits_out_of_chat_and_transcr
     assert len(readback) == 1 and readback[0]["frames"]
     if clips:  # every line, the read-back included, came from pre-recorded clips: live TTS was never called
         assert fake.tts.synthesized == []
-        assert all(s["frames"] and not isinstance(s["frames"][0], str) for s in fake.said)
+        upto = [s["text"] for s in fake.said].index(cv.PROMPT["verified"]) + 1
+        assert all(s["frames"] and not isinstance(s["frames"][0], str) for s in fake.said[:upto])
     else:  # no clips: the same fixed lines go to live TTS, the real digits only as the fixed template
         assert "You entered 4, 7, 2, 9. Press 1 to confirm or 2 to retype." in fake.tts.synthesized
         assert cv.PROMPT["menu"] in fake.tts.synthesized
@@ -292,3 +293,80 @@ def test_mixed_rate_fallback_part_is_resampled_to_one_rate(worker, cv):
     parts = [ap.Part("clip", "you_entered", "You entered", b"\x00\x00" * 1600, 16000), ap.Part("tts", "x", "x")]
     frames = asyncio.run(drain(agent._prompt_frames(parts)))
     assert {f.sample_rate for f in frames} == {16000}
+
+
+# ----------------------------------------------------------------------------------------------- tone after verification
+class ToneSpy:
+    def __init__(self):
+        import tone_wiring as W
+        self.inner, self.calls = W.ToneSession(W.make_hook("en")), []
+
+    def __getattr__(self, name):
+        attr = getattr(self.inner, name)
+        if not callable(attr):
+            return attr
+
+        def wrapped(*a, **k):
+            self.calls.append(name)
+            return attr(*a, **k)
+        return wrapped
+
+
+def test_tone_starts_only_after_keypad_verification(worker, cv, directory_env):
+    rec, _, _ = worker.phone_lookup(PHONE, directory_env)
+    script = ["1", APP4, "1"]
+    holder = {}
+
+    def on_say(text):
+        if script and (text in (cv.PROMPT["menu"], cv.PROMPT["enter"]) or text.startswith("You entered")):
+            for k in script.pop(0):
+                holder["h"](SimpleNamespace(digit=k, code=None, participant=SimpleNamespace(identity="sip_caller")))
+
+    agent, fake, calls = make_agent(worker, cv, rec, on_say=on_say)
+    spy = agent.tone = ToneSpy()
+    holder["h"] = cv.dtmf_handler("sip_caller", agent.phone.verifier)
+
+    async def go():
+        out = await drain(agent.llm_node(user_ctx("why was my loan rejected"), [], None))  # unverified turn
+        agent._verify_task.cancel()
+        return out
+    assert asyncio.run(go()) == [cv.PROMPT["needs_verification"]]
+    assert "activate" not in spy.calls and not spy.inner.active  # the gate turn never reached the tone engine
+    assert asyncio.run(agent.verify_caller()) == cv.VERIFIED
+    assert spy.calls.count("activate") == 1 and spy.inner.active
+    assert fake.tts.synthesized == []  # the whole auth phase, "verified" included, came from clips
+
+
+def test_verified_turn_sets_speed_and_speaks_only_the_budget(worker, cv, monkeypatch):
+    agent, fake, calls = make_agent(worker, cv, reason=cv.UNKNOWN_CALLER)
+    agent.phone = None  # browser path: the Voice Session row authorised the call
+    speeds = []
+    fake.tts.set_speed = speeds.append
+    published = []
+
+    async def publish_data(data, topic=None):
+        published.append(topic)
+    agent.room = SimpleNamespace(local_participant=SimpleNamespace(publish_data=publish_data))
+    agent._http = object()  # never used: the graph stream is faked below
+    graph = ["Your application was declined because the income could not be verified.",
+             "The bank statement for March was missing.",
+             "You can upload it in the portal and ask for a review.",
+             "A person from our team can also call you."]
+
+    async def fake_speakable(events, after, filler, on_final, failure_text=None):
+        for s in graph:
+            yield s
+        on_final({"answer": " ".join(graph), "intent": "explain"})
+    monkeypatch.setattr(worker, "speakable", fake_speakable)
+
+    async def go():
+        await agent.on_verified()
+        out = await drain(agent.llm_node(user_ctx("why was my loan rejected"), [], None))
+        await asyncio.sleep(0)
+        return out
+    out = asyncio.run(go())
+    from loan_advisory.agent import tone as T
+    kept, deferred = T.fit_budget(graph, T.derive(None, "en"))
+    assert out == kept and deferred and agent.turn.info["tone_deferred"] == len(deferred)
+    assert speeds and all(0.9 <= s <= 1.05 for s in speeds)
+    assert agent.turn.info["tone_tier"] in T.TIERS and published == ["advisor"]

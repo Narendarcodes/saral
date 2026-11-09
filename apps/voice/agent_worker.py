@@ -25,7 +25,12 @@ rendered once by scripts/voice/render_auth_prompts.py with Timbre v3.0 / Tarika)
 read-back stitched from "you entered" + one clip per digit + "press 1 to confirm", mismatch / retry / locked / timeout
 lines and "verified, connecting you to Saral". The auth phase never calls the advisory graph (its LLM) or live TTS; a
 missing or stale clip falls back to live TTS of the same fixed text with a warning. After verification the same
-session continues as the normal dynamic agent. An unknown number is told no account details can be shared and offered a
+session continues as the normal dynamic agent.
+
+Tone (tone_wiring.py -> tone_hook.py) starts only after verification (phone: keypad verified; browser: the Voice
+Session row): per turn it sets the Timbre speed (0.90-1.05), adds closed-set acknowledgement / hand-over lines and
+speaks only the whole graph sentences that fit the tier's word budget (the rest are deferred; the page still gets the
+full answer card). Decision prefetch from ZEN is not wired yet (UnwiredDecisionPort). An unknown number is told no account details can be shared and offered a
 person. DTMF must be enabled on the SIP trunk; this is demo-grade authentication (4 digits).
 
 Every turn writes one JSON line (VOICE_TURN_LOG) with: end-of-user-speech -> STT done -> graph answer (and the
@@ -58,6 +63,7 @@ from loan_advisory.state_paths import append_private  # noqa: E402  (P0c private
 from voice_assertion_exchange import Assertions, PhoneAssertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
 import caller_verification as cv  # noqa: E402  (keypad caller verification; no LiveKit imports)
 import auth_prompts as ap  # noqa: E402  (pre-recorded auth-phase clips; no LiveKit imports)
+from tone_wiring import ToneSession, make_hook  # noqa: E402  (tone engine, used only after verification)
 from gnani_speech import build_stt, build_tts  # noqa: E402  (Gnani Prisma STT + Timbre TTS)
 
 CFG = VoiceSettings.from_env()
@@ -161,7 +167,7 @@ class GraphLLM(llm.LLM):
 
 class AdvisorAgent(Agent):
     def __init__(self, auth, locale: str, room: rtc.Room, turn: Turn, phone: PhoneCall | None = None,
-                 prompts: ap.PromptStore | None = None):
+                 prompts: ap.PromptStore | None = None, tone: ToneSession | None = None):
         super().__init__(instructions="Loan advisory assistant (replies come from the LangGraph advisory graph). "
                                       "Phone callers must pass verify_caller before any account detail is discussed.")
         self.auth, self.locale, self.room, self.turn, self.phone = auth, locale, room, turn, phone
@@ -170,6 +176,7 @@ class AdvisorAgent(Agent):
         self._verify_task: asyncio.Task | None = None
         self.prompts = prompts or ap.PromptStore(locale=locale)
         self._gate_pending = False
+        self.tone = tone or ToneSession(make_hook(locale))
 
     # ------------------------------------------------------------------------------------- phone verification
     @llm.function_tool
@@ -186,7 +193,21 @@ class AdvisorAgent(Agent):
         if self.phone.verifier is None:
             await self._say(cv.PROMPT[self.phone.reason or cv.UNAVAILABLE])
             return self.phone.reason or cv.UNAVAILABLE
-        return await self.phone.verifier.run()
+        result = await self.phone.verifier.run()
+        if result == cv.VERIFIED:
+            await self.on_verified()
+        return result
+
+    async def on_verified(self, speak: bool = True) -> None:
+        """Hand-over from the pre-recorded auth phase to the dynamic agent: start the tone engine (never before).
+        `speak=False` (browser calls, which open with their own greeting) starts tone without its opening lines."""
+        try:
+            lines = await self.tone.activate()
+        except Exception:  # tone is an enhancement; the verified call goes on without it
+            log.warning("tone engine could not start; continuing with the neutral tone")
+            return
+        for line in lines if speak else []:
+            await self.session.say(line, add_to_chat_ctx=False, allow_interruptions=True)
 
     def start_verification(self) -> None:
         if self._verify_task is None or self._verify_task.done():
@@ -267,6 +288,17 @@ class AdvisorAgent(Agent):
             if getattr(item, "role", None) == "user":
                 msg = item.text_content or ""
                 break
+        plan = self.tone.plan_turn(msg)  # None before verification / for an inactive tone engine
+        speed = self.tone.speed(plan)
+        set_speed = getattr(self.session.tts, "set_speed", None)
+        if speed is not None and callable(set_speed):
+            set_speed(speed)
+        budget = self.tone.budget(plan)
+        speak_answer = self.tone.speak_answer(plan)
+        if plan is not None:
+            self.turn.info.update(tone_tier=plan.tone.tier, tone_speed=speed, tone_fired=list(plan.fired))
+        for line in self.tone.lead_lines(plan):
+            yield line
         self.turn.mark("graph_start")
         self.turn.info["locale"] = self.locale
         self.turn.info["session_id"] = self.auth.session_id
@@ -305,9 +337,15 @@ class AdvisorAgent(Agent):
             n += 1
             if text == CFG.filler.get(self.locale):
                 self.turn.info["filler"] = True
+            elif not speak_answer or (budget is not None and not budget.admit(text)):
+                continue  # deferred by the tone budget (whole sentences only; the page still gets the answer card)
             else:
                 self.turn.mark("first_sentence")
             yield text
+        for line in self.tone.closing_lines(plan):
+            yield line
+        if budget is not None:
+            self.turn.info["tone_deferred"] = budget.deferred
         self.turn.mark("graph_done")
         resp = final or {"answer": "", "intent": "other", "error": "no final response"}
         self._report(resp, msg, n)
@@ -346,6 +384,21 @@ class AdvisorAgent(Agent):
                         self.turn.mark("tts_first_audio")
                         self.turn.info.setdefault("tts_ttfa_ms", round((time.perf_counter() - t0) * 1000, 1))
                     yield ev.frame
+
+
+def wire_tone_events(session: AgentSession, agent: AdvisorAgent) -> None:
+    """Barge-in feeds the tone engine (a no-op until the call is verified)."""
+
+    @session.on("user_state_changed")
+    def _barge(ev):
+        if getattr(ev, "new_state", None) == "speaking" and getattr(session, "agent_state", None) == "speaking":
+            agent.tone.on_barge_in()
+
+
+def _end_tone(agent: AdvisorAgent):
+    async def _end(*_a):
+        agent.tone.end()  # wipes the call cache
+    return _end
 
 
 def prewarm(proc: JobProcess):
@@ -389,14 +442,20 @@ async def entrypoint(ctx: JobContext):
         elif getattr(ev, "new_state", None) == "listening":
             turn.mark("user_stopped")
 
+    agent = AdvisorAgent(auth, locale, ctx.room, turn)
+
     @session.on("agent_state_changed")
     def _a(ev):
         if getattr(ev, "new_state", None) == "speaking":
             turn.mark("agent_speaking")
             turn.flush()
+        elif getattr(ev, "old_state", None) == "speaking":
+            agent.tone.on_agent_turn_end()
 
-    agent = AdvisorAgent(auth, locale, ctx.room, turn)
+    wire_tone_events(session, agent)
+    ctx.add_shutdown_callback(_end_tone(agent))
     await session.start(agent=agent, room=ctx.room)
+    await agent.on_verified(speak=False)  # the Voice Session row authorised this call (auth.fresh() above)
     await session.say(GREETING[locale], allow_interruptions=True)
     await asyncio.sleep(0)
 
@@ -425,6 +484,14 @@ async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant):
                                                            speak_private=agent._say_private)
     # Keypad digits come only from LiveKit SIP DTMF room events, never from the speech path.
     ctx.room.on("sip_dtmf_received", cv.dtmf_handler(participant.identity, phone.verifier))
+
+    @session.on("agent_state_changed")
+    def _a(ev):
+        if getattr(ev, "old_state", None) == "speaking":
+            agent.tone.on_agent_turn_end()
+
+    wire_tone_events(session, agent)
+    ctx.add_shutdown_callback(_end_tone(agent))
     await session.start(agent=agent, room=ctx.room)
     await agent._say(PHONE_GREETING)  # pre-recorded, like every line before verification
     agent.start_verification()

@@ -115,6 +115,15 @@ GNANI_API_KEY=... python scripts/voice/render_auth_prompts.py --force --only dig
 One Timbre request per clip (about 30). Digit clips keep only their first spoken word, because Timbre sometimes
 repeats a lone word after a pause. After verification the same session continues as the normal dynamic agent.
 
+**Tone after verification.** Once a caller is verified (phone: keypad; browser: the `Voice Session` row), the worker
+starts the tone engine (`apps/voice/tone_wiring.py` -> `tone_hook.py`). Each turn it plans a tier from live signals
+(confusion, anger, distress, barge-in, language), sets the Timbre speed inside 0.90-1.05, speaks closed-set
+acknowledgement / hand-over lines from `tone_cards.py` around the graph answer, and speaks only the whole graph
+sentences that fit the tier's word and sentence budget (deferred sentences are never cut or rewritten; the page still
+gets the full answer card). On a safety turn the answer is withheld and the unapproved safety line is never spoken.
+Nothing in the auth phase reaches the tone engine. Not wired yet: decision prefetch from ZEN (no decision-record port
+in the worker, so the hook runs without a record), `respond()` templates, and the silence / close plans.
+
 **SIP configuration.** The provider trunk must send DTMF as RFC 4733 / RFC 2833 `telephone-event` (not in-band audio);
 LiveKit SIP relays those tones to the room as `sip_dtmf_received`. If your trunk or dispatch rule has a DTMF
 forwarding setting, it must be on, and the dispatch rule must not hide the caller's number (`hide_phone_number`

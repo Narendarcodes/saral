@@ -1,4 +1,7 @@
-"""Integration hook between the voice worker (agent_worker.py) and the tone engine. NOT wired in yet.
+"""Integration hook between the voice worker (agent_worker.py) and the tone engine. Wired through tone_wiring.py
+(only after verification): on_verified, on_user_final, tts_options (speed), the plan's closed-set lines and word
+budget, on_barge_in, on_agent_turn_end and on_call_end. respond() / on_silence() / on_close() are not called by the
+worker yet: answers still come from the advisory graph, and decision prefetch has no ZEN port (UnwiredDecisionPort).
 
 The worker owns LiveKit, Gnani STT/TTS and the turn loop; this hook owns tone and the fast/slow thinker. The worker
 calls the hook at seven points and plays what comes back. Nothing here imports LiveKit, so it is unit-tested alone.
