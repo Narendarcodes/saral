@@ -29,9 +29,9 @@
 		<div class="card card--tight">
 			<h2>Why we ask</h2>
 			{% if boot.get("demo") %}
-			<p class="small muted mt">Lenders must confirm that the person applying is who they say they are. This preview only shows how a document check would look and how details would be masked. It does not read an identity document or confirm your name.</p>
+			<p class="small muted mt">Lenders must confirm who is applying. Use sample values only. This preview stores nothing.</p>
 			{% else %}
-			<p class="small muted mt">Lenders must confirm that the person applying is who they say they are. Online checks are not open yet, so your loan advisor will arrange identity verification with you at the right stage of the application.</p>
+			<p class="small muted mt">Lenders must confirm who is applying. Your loan advisor will arrange identity verification with you.</p>
 			{% endif %}
 		</div>
 		<div class="card card--tight">
@@ -42,7 +42,6 @@
 				<li>Sample last 4 digits of an Aadhaar</li>
 				<li>A face check, shown but not connected</li>
 			</ul>
-			<p class="small muted mt">Use sample values only. This preview stores nothing, sends nothing and never asks for your full Aadhaar number or your password.</p>
 			{% else %}
 			<h2>What happens next</h2>
 			<ol class="plain-list mt">
