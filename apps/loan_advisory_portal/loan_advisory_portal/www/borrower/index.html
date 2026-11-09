@@ -20,6 +20,19 @@
 	<img class="dash-hero__art" src="/assets/loan_advisory_portal/illustrations/dashboard.svg" alt="" width="200" height="150">
 </section>
 
+{#- First-visit guide: shown by the script below only when the account has no applications, until dismissed. #}
+<section class="first-guide" id="first-guide" aria-labelledby="first-guide-heading" hidden>
+	<div class="first-guide__head">
+		<h2 id="first-guide-heading">How Saral works</h2>
+		<button type="button" class="btn btn--quiet btn--sm" id="first-guide-dismiss">Dismiss</button>
+	</div>
+	<ol class="first-guide__steps">
+		<li><span class="first-guide__num" aria-hidden="true">1</span><a href="/borrower/apply">Apply</a></li>
+		<li><span class="first-guide__num" aria-hidden="true">2</span><a href="/borrower/documents">Add documents</a></li>
+		<li><span class="first-guide__num" aria-hidden="true">3</span><a href="/borrower/assistant">Ask Saral about the decision, by chat or phone</a></li>
+	</ol>
+</section>
+
 <dl class="summary-strip" id="summary" aria-label="At a glance">
 	<div>
 		<dt>Profile completed</dt>
@@ -105,6 +118,22 @@
 	</aside>
 </div>
 
+<script>
+(function () {
+	var KEY = "saral.firstGuide.dismissed";
+	var guide = document.getElementById("first-guide");
+	var count = document.querySelector('[data-stat="count"]');
+	if (!guide || !count) return;
+	try { if (localStorage.getItem(KEY) === "1") return; } catch (e) {}
+	function sync() { guide.hidden = count.textContent.trim() !== "0"; }
+	new MutationObserver(sync).observe(count, { childList: true, characterData: true, subtree: true });
+	sync();
+	document.getElementById("first-guide-dismiss").addEventListener("click", function () {
+		guide.hidden = true;
+		try { localStorage.setItem(KEY, "1"); } catch (e) {}
+	});
+})();
+</script>
 <script src="/assets/loan_advisory_portal/js/status.js" defer></script>
 <script src="/assets/loan_advisory_portal/js/pages/applications.js" defer></script>
 {% endblock %}

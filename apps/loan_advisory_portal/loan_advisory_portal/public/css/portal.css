@@ -6837,3 +6837,67 @@ textarea:focus-visible {
 	color: var(--warn);
 	font-weight: 600;
 }
+
+/* First-visit guide on the dashboard: three numbered links in one row, stacked on narrow screens. */
+.first-guide {
+	margin: var(--s5) 0 0;
+	padding: var(--s4) var(--s5);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	background: var(--surface);
+}
+
+.first-guide[hidden] {
+	display: none;
+}
+
+.first-guide__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--s3);
+}
+
+.first-guide__head h2 {
+	margin: 0;
+	font-size: 1rem;
+}
+
+.first-guide__steps {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: var(--s3);
+	margin: var(--s3) 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.first-guide__steps li {
+	display: flex;
+	align-items: center;
+	gap: var(--s2);
+}
+
+.first-guide__num {
+	display: inline-grid;
+	flex: 0 0 auto;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border: 1px solid var(--line-2);
+	border-radius: 50%;
+	color: var(--ink-2);
+	font-size: 0.8rem;
+	font-weight: 600;
+}
+
+.first-guide__steps a {
+	color: var(--ink);
+	font-weight: 600;
+}
+
+@media (max-width: 640px) {
+	.first-guide__steps {
+		grid-template-columns: 1fr;
+	}
+}
