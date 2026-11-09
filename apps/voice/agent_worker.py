@@ -16,7 +16,11 @@ Frappe's `voice_assertion` method and forwards the fresh 60-second assertion as 
 therefore uses exactly the same authorization path as text, and the worker holds no borrower cookie. The worker
 never sees or chooses an application on its own.
 
-Phone calls (LiveKit SIP participant), call flow v2 "language first, then 4 digits": there is no Voice Session row, so
+Routing (call_routing.py, decided once per room): a SIP participant, or the portal's WEB PHONE (a browser participant
+whose Frappe-minted token sets `saral.mode=web_phone` and `sip.phoneNumber`, in a `webcall-` room), takes the phone
+flow below; a participant whose metadata names a Voice Session takes voice mode; anything else is refused.
+
+Phone calls (LiveKit SIP participant, or the web phone), call flow v2 "language first, then 4 digits": there is no Voice Session row, so
 the caller ID (`sip.phoneNumber`) is matched to a hashed synthetic applicant directory (CALLER_DIRECTORY,
 CALLER_VERIFY_HMAC_KEY) whose record names the caller's language (ten Gnani codes, default en-IN). The caller hears a
 greeting in that language with no name or account data ("Welcome to Saral. To change language, press nine."), may
@@ -65,6 +69,7 @@ from loan_advisory.agent.voice_log import turn_row  # noqa: E402
 from loan_advisory.state_paths import append_private  # noqa: E402  (P0c private creation)
 from voice_assertion_exchange import Assertions, PhoneAssertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
 import caller_verification as cv  # noqa: E402  (keypad caller verification; no LiveKit imports)
+import call_routing  # noqa: E402  (which door a participant came in by; no LiveKit imports)
 import auth_prompts as ap  # noqa: E402  (pre-recorded auth-phase clips; no LiveKit imports)
 import prompt_texts as pt  # noqa: E402  (fixed call lines in ten languages; no LiveKit imports)
 from tone_wiring import ToneSession, make_hook  # noqa: E402  (tone engine, used only after verification)
@@ -72,7 +77,7 @@ from gnani_speech import build_stt, build_stt_for_language, build_tts  # noqa: E
 
 CFG = VoiceSettings.from_env()
 AGENT_HTTP, TURN_LOG = CFG.agent_http, CFG.turn_log
-SESSION_ID = re.compile(r"^[0-9a-f]{32}$")
+SESSION_ID = call_routing.SESSION_ID  # Voice Session ids (voice mode)
 GREETING = {
     "en": "Hello. I can explain your loan decision, suggest what to work on, or answer policy questions. What would you like to know?",
     "hi": "नमस्ते। मैं आपके लोन फ़ैसले के कारण समझा सकता हूँ, सुधार के उपाय बता सकता हूँ, या नीति के सवालों का जवाब दे सकता हूँ। आप क्या जानना चाहेंगे?",
@@ -549,15 +554,22 @@ def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load(min_silence_duration=CFG.vad_min_silence_s)
 
 
+def participant_route(participant, room_name: str) -> str:
+    """call_routing.route for a LiveKit participant: PHONE (SIP), WEB_PHONE (portal web phone), VOICE or REFUSE."""
+    return call_routing.route(is_sip=participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP,
+                              attributes=participant.attributes, metadata=participant.metadata, room=room_name)
+
+
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
     participant = await ctx.wait_for_participant()
-    if participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP:
-        await phone_entrypoint(ctx, participant)
+    route = participant_route(participant, ctx.room.name)
+    if call_routing.is_phone_flow(route):
+        # A SIP call and the portal's web phone run the same keypad flow; only the web phone may also key by data.
+        await phone_entrypoint(ctx, participant, web_phone=route == call_routing.WEB_PHONE)
         return
-    meta = json.loads(participant.metadata or "{}")
-    session_id = meta.get("session_id")
-    if not isinstance(session_id, str) or not SESSION_ID.match(session_id):
+    session_id = call_routing.session_id(participant.metadata)
+    if route != call_routing.VOICE or session_id is None:
         # No session row means no authorisation: refuse the room instead of greeting a stranger.
         raise RuntimeError("voice session metadata is missing; leaving the room")
     http = aiohttp.ClientSession()
@@ -604,9 +616,15 @@ async def entrypoint(ctx: JobContext):
     await asyncio.sleep(0)
 
 
-async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant):
+async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant, web_phone: bool = False):
     """A SIP caller: caller-ID lookup, greeting in the record's language (press 9 for the language menu), then keypad
-    verification before any advisory turn. An unknown caller hears the en-IN greeting and the unknown-caller line."""
+    verification before any advisory turn. An unknown caller hears the en-IN greeting and the unknown-caller line.
+
+    `web_phone`: the portal's browser phone (call_routing.WEB_PHONE). Same flow; its caller ID is the `sip.phoneNumber`
+    attribute Frappe put in the token, and its keypad presses arrive as `sip_dtmf_received` (livekit-client
+    `publishDtmf`) or, as a site-selectable fallback, as data packets on topic "dtmf" from that participant only."""
+    if web_phone:
+        log.info("web phone call joined")
     record, key, reason = phone_lookup(cv.caller_id(participant.attributes, participant.identity))
     http = aiohttp.ClientSession()
     phone = PhoneCall(record, reason)
@@ -642,6 +660,8 @@ async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant):
         phone.keypad = cv.KeypadCall(speak=agent._say_key, language=pt.DEFAULT_LANGUAGE, on_language=on_language)
     # Keypad digits come only from LiveKit SIP DTMF room events, never from the speech path.
     ctx.room.on("sip_dtmf_received", cv.dtmf_handler(participant.identity, phone.keypad))
+    if web_phone:
+        ctx.room.on("data_received", cv.dtmf_data_handler(participant.identity, phone.keypad))
 
     @session.on("agent_state_changed")
     def _a(ev):

@@ -72,6 +72,71 @@ LiveKit room ── participant metadata {session_id, user, customer, applicatio
 
 There is no local fallback: without the Frappe credential the worker raises before greeting.
 
+## Three ways to talk to Saral
+
+| Door | How it reaches Saral | Authorisation | Room |
+|---|---|---|---|
+| **Text chat** | portal assistant -> advisory server (`/api/chat`), no LiveKit | portal login; Frappe mints a 60 s assertion per turn | none |
+| **Voice mode** (in-app, ChatGPT-style) | browser joins LiveKit; worker `entrypoint` voice path | the `Voice Session` row Frappe writes before the token; metadata `session_id` | `loan-<seed>-<random>`, one per session |
+| **Phone call** | real number (+1 484 295 0295, LiveKit SIP) **or the web phone** (`/borrower/call`, browser over WebRTC) | caller ID -> directory record -> last 4 digits on the keypad; then `phone_assertion` | SIP dispatch room, or `webcall-<random>`, one per call |
+
+All three share the advisory server (same LangGraph graph, ZEN evidence, guards); voice and phone also share the one
+worker. They are kept apart by:
+
+- **Separate rooms per session or call.** Voice mode rooms are `loan-...`, web phone rooms `webcall-...`; neither is
+  reused, and the worker serves exactly one participant per room.
+- **Separate authorisation.** Text: portal login. Voice mode: the Voice Session row (the worker refuses a participant
+  without a well-formed `session_id`). Phone: the keypad (`VerifiedGate` keeps the advisory server unreachable until
+  the last 4 digits match). The web phone has no Voice Session row, so it can never take the voice-mode path; a voice
+  mode token has no attributes, so it can never take the phone path.
+- **Explicit routing precedence** (`apps/voice/call_routing.py`, tested in `tests/test_web_phone.py`): SIP -> phone;
+  `saral.mode=web_phone` attribute AND a `webcall-` room AND no session id -> phone; a `session_id` -> voice mode;
+  anything else (including any mix of the two, a web_phone attribute outside a `webcall-` room, or a `webcall-` room
+  without it) -> refused before any greeting.
+- **Per-call state.** Tone engine state is a per-call cache wiped at shutdown; conversation ids are `voice-<session>`
+  and `phone-<hash of room|identity>`.
+
+### The web phone (`/borrower/call`)
+
+A phone-call screen in the portal (Saral avatar, status line, call timer, 3x4 keypad, mute, keypad, speaker, hang up)
+that runs the SAME flow as dialling the real number, for demos where a phone line is not available (no free Indian
+number; international calls cost the borrower).
+
+1. **Token** (`loan_advisory_portal.api.web_phone.start_web_call`, POST). A signed-in borrower's caller ID is the
+   number on their Borrower Profile (else the Customer's `mobile_no`); with no number the page says "No phone number on
+   your profile". A signed-out visitor can call only when the site sets `saral_web_phone_demo_number` (a synthetic demo
+   applicant's number); otherwise sign-in is required. Frappe mints a LiveKit token (the voice-mode minter,
+   `services/livekit_token.create_token`, same `livekit_*` site config) for a new room `webcall-<16 hex>` with
+   participant attributes `{"saral.mode": "web_phone", "sip.phoneNumber": "<E.164>"}`, empty metadata and
+   `canUpdateOwnMetadata: false`. **Attributes in a token are server-set**: only the holder of the API secret can write
+   them, and without `canUpdateOwnMetadata` the browser cannot change them (checked on livekit-server 1.13.11: a
+   participant's own `set_attributes` is refused and the token values stay). The endpoint takes no arguments, so the
+   browser never supplies a number; it gets back only the masked number (`+91 ••••• •••01`). Budgets: 10 calls/hour
+   and one call at a time per account (per hashed address for the demo caller); `end_web_call(room)` releases the lock.
+   The worker is dispatched like voice mode (automatic dispatch to new rooms, no agent name).
+2. **Routing.** The worker's `entrypoint` sees `web_phone` and calls `phone_entrypoint(..., web_phone=True)`: the same
+   caller-ID lookup (`cv.caller_id` reads `sip.phoneNumber`), greeting, press-9 menu, last-4 check, `phone_assertion`
+   (so `voice_phone_assertions` must be on, as for SIP) and the live agent in the chosen language.
+3. **Keypad.** Each press calls livekit-client `localParticipant.publishDtmf(code, digit)` (RFC 4733: 0-9 -> 0-9,
+   `*` -> 10, `#` -> 11). This is the SIP DTMF data packet, and the Python worker receives it as the same
+   `sip_dtmf_received` room event it uses for SIP callers, for a non-SIP participant too (checked against
+   livekit-server 1.13.11 in dev mode: presses from a standard participant arrived with their code, digit and sender,
+   and a last-4 keyed that way matched the directory). Fallback, if a deployment drops those packets: set
+   `saral_web_phone_keypad = "data"` and the page sends a reliable data packet on topic `dtmf` with `{"digit": "4"}`;
+   the worker accepts it only on web-phone calls, only from that participant, one key per packet
+   (`cv.dtmf_data_handler`). Either way digits are shown as dots, never logged and never reach the LLM. The page plays
+   a local DTMF tone per press and an Indian ring-back until Saral answers.
+4. **SDK.** The page imports the livekit-client ES module chunk the assistant island already ships
+   (`public/js/assistant/chunks/livekit-client.esm-*.js`, located at render time), so there is one copy of the SDK
+   and no CDN.
+5. **Directory.** The caller ID must be in `CALLER_DIRECTORY`. For a seeded demo borrower, put their profile number on
+   their applicant: `seed_caller_directory.py --phone CUS-TEST-001=+919876500001` (repeatable; other applicants keep
+   their synthetic numbers and digits).
+
+The browser needs a secure origin for the microphone: `https://...` or `http://localhost`. A phone on the same Wi-Fi
+opening `http://<laptop-ip>:8000` gets no microphone; use an HTTPS tunnel (for example `tailscale serve`, which gives
+the laptop an `https://<name>.<tailnet>.ts.net` address on the phone's tailnet) instead.
+
 ## Languages
 
 Saral's voice runs in all 10 languages Gnani Prisma and Timbre support (English, Hindi, Telugu, Tamil, Kannada,

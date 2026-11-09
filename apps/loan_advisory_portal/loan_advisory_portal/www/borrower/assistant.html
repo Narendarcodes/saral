@@ -58,12 +58,10 @@
 			<h1>Ask about this decision</h1>
 			<a class="small workspace__help" href="/borrower/help#assistant">How the assistant works</a>
 		</div>
-		{% if call_saral %}
 		<p class="callsaral">
-			<a class="callsaral__link" href="tel:{{ call_saral.tel }}">Call Saral {{ call_saral.display }}</a>
-			<span class="small muted">Press 9 to change language, then key the last 4 digits of your application number.</span>
+			<a class="callsaral__link" href="/borrower/call">Call Saral</a>
+			<span class="small muted">{% if call_saral %}or dial <a href="tel:{{ call_saral.tel }}">{{ call_saral.display }}</a>. {% endif %}Press 9 to change language, then key the last 4 digits of your application number.</span>
 		</p>
-		{% endif %}
 		<section class="appstrip" aria-label="This application">
 			<dl class="appstrip__facts">
 				<div><dt>Application</dt><dd>{{ application.name }}</dd></div>

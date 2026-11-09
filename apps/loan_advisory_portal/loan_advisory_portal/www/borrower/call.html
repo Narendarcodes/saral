@@ -1,0 +1,86 @@
+{% extends "templates/portal/base.html" %}
+
+{% block body_class %}{{ 'app-shell' if (boot.get('user') and boot.get('user') != 'Guest' and not blocked) else 'public-shell' }} webphone-shell{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="/assets/loan_advisory_portal/css/web_phone.css">
+{% endblock %}
+
+{% block page_content %}
+{% if web_phone %}
+<section class="webphone" aria-labelledby="webphone-name">
+	<div class="webphone__screen" id="webphone" data-state="idle">
+		<header class="webphone__head">
+			<img class="webphone__avatar" src="/assets/loan_advisory_portal/brand/saral-mark.svg" alt="" width="88" height="88">
+			<h1 class="webphone__name" id="webphone-name">Saral</h1>
+			<p class="webphone__status" id="webphone-status" role="status" aria-live="polite">{% if web_phone.available %}Ready to call{% elif web_phone.reason == "no_number" %}No phone number on your profile{% else %}Calling is not available right now{% endif %}</p>
+			<p class="webphone__timer" id="webphone-timer" aria-label="Call time">00:00</p>
+			{% if web_phone.caller %}<p class="webphone__from small">Calling from <span class="webphone__number">{{ web_phone.caller }}</span>{% if web_phone.demo %} (demo caller){% endif %}</p>{% endif %}
+		</header>
+
+		{% if web_phone.available %}
+		<p class="webphone__digits" id="webphone-digits" aria-hidden="true"></p>
+
+		<div class="webphone__keypad" id="webphone-keypad" role="group" aria-label="Keypad">
+			{% for key, letters in [("1", ""), ("2", "ABC"), ("3", "DEF"), ("4", "GHI"), ("5", "JKL"), ("6", "MNO"), ("7", "PQRS"), ("8", "TUV"), ("9", "WXYZ"), ("*", ""), ("0", "+"), ("#", "")] %}
+			<button type="button" class="webphone__key" data-key="{{ key }}" aria-label="{{ 'star' if key == '*' else ('hash' if key == '#' else key) }}" disabled>
+				<span class="webphone__keydigit">{{ key }}</span><span class="webphone__keyletters">{{ letters }}</span>
+			</button>
+			{% endfor %}
+		</div>
+
+		<div class="webphone__controls">
+			<button type="button" class="webphone__round" id="webphone-mute" aria-pressed="false" disabled>
+				<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+				<span>Mute</span>
+			</button>
+			<button type="button" class="webphone__round" id="webphone-keys" aria-pressed="true" aria-controls="webphone-keypad">
+				<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><circle cx="6" cy="5" r="1.6"/><circle cx="12" cy="5" r="1.6"/><circle cx="18" cy="5" r="1.6"/><circle cx="6" cy="11" r="1.6"/><circle cx="12" cy="11" r="1.6"/><circle cx="18" cy="11" r="1.6"/><circle cx="6" cy="17" r="1.6"/><circle cx="12" cy="17" r="1.6"/><circle cx="18" cy="17" r="1.6"/><circle cx="12" cy="22" r="1.6"/></svg>
+				<span>Keypad</span>
+			</button>
+			<button type="button" class="webphone__round" id="webphone-speaker" aria-pressed="true" disabled>
+				<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+				<span>Speaker</span>
+			</button>
+		</div>
+
+		<div class="webphone__dial">
+			<button type="button" class="webphone__call" id="webphone-call" aria-label="Call Saral">
+				<svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true"><path d="M6.6 10.8a15.5 15.5 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>
+			</button>
+			<button type="button" class="webphone__hangup" id="webphone-hangup" aria-label="Hang up" hidden>
+				<svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor" aria-hidden="true"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1a1 1 0 0 1-.56.9 11.5 11.5 0 0 0-2.66 1.85 1 1 0 0 1-1.4 0L.7 13.5a1 1 0 0 1 0-1.4A16.9 16.9 0 0 1 12 7.5a16.9 16.9 0 0 1 11.3 4.6 1 1 0 0 1 0 1.4l-2.1 2.07a1 1 0 0 1-1.4 0 11.4 11.4 0 0 0-2.66-1.85 1 1 0 0 1-.56-.9v-3.1A15 15 0 0 0 12 9z"/></svg>
+			</button>
+		</div>
+
+		<p class="webphone__hint small">Press 9 to change language, then key the last 4 digits of your application number.</p>
+		{% elif web_phone.reason == "no_number" %}
+		<div class="alert alert--warn webphone__notice" role="status">
+			<strong>No phone number on your profile</strong>
+			<span>Saral knows a caller by their registered number. Add yours on your <a href="/borrower/profile">profile</a>, then come back to call.</span>
+		</div>
+		{% else %}
+		<div class="alert alert--warn webphone__notice" role="status">
+			<strong>Calling is not available right now</strong>
+			<span>You can still ask Saral in the <a href="/borrower/assistant">assistant</a>.</span>
+		</div>
+		{% endif %}
+
+		{% if call_saral %}
+		<p class="webphone__real small muted">or dial <a href="tel:{{ call_saral.tel }}">{{ call_saral.display }}</a></p>
+		{% endif %}
+	</div>
+	<noscript>
+		<div class="alert alert--warn" role="status">
+			<strong>JavaScript is off</strong>
+			<span>The web phone needs JavaScript and microphone access.</span>
+		</div>
+	</noscript>
+</section>
+
+<script id="web-phone-context" type="application/json">{{ web_phone | tojson }}</script>
+{% if web_phone.available %}
+<script type="module" src="/assets/loan_advisory_portal/js/pages/web_phone.js"></script>
+{% endif %}
+{% endif %}
+{% endblock %}
