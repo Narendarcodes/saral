@@ -72,7 +72,23 @@ def get_context(context):
 		"locale": preferences["locale"],
 		"voice": {"enabled": _voice_configured(), "consent_version": livekit_token.CONSENT_VERSION},
 	}
+	context["call_saral"] = _call_saral()
 	return context
+
+
+# The demo's inbound number (LiveKit Cloud, synthetic applicants only). A site can set its own in
+# site_config as `saral_call_number`, or set it to "" to hide the line.
+DEFAULT_CALL_NUMBER = "+14842950295"
+
+
+def _call_saral() -> dict | None:
+	number = str(frappe.conf.get("saral_call_number", DEFAULT_CALL_NUMBER) or "").replace(" ", "")
+	if not number.startswith("+") or not number[1:].isdigit():
+		return None
+	display = number
+	if number.startswith("+1") and len(number) == 12:
+		display = f"+1 {number[2:5]} {number[5:8]} {number[8:]}"
+	return {"tel": number, "display": display}
 
 
 def _voice_configured() -> bool:
