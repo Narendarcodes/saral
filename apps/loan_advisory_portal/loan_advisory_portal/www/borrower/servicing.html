@@ -2,10 +2,7 @@
 {% block title %}Repayments{% endblock %}
 {% block page_content %}
 {% if boot.get("demo") %}
-<div class="alert alert--warn" role="note">
-	<strong>Preview mode <span class="demo-flag">Demo</span></strong>
-	<span>This repayment schedule is a development fixture. No real loan, bank account or payment record is attached, and nothing on this page takes or confirms a payment.</span>
-</div>
+<p class="preview-bar" role="note"><strong>Preview mode:</strong> sample schedule only, and nothing here takes or confirms a payment.</p>
 
 <div class="page-head page-head--art mt">
 	<div>

@@ -6819,3 +6819,21 @@ textarea:focus-visible {
 		font-size: 0.78rem;
 	}
 }
+
+/* Preview bar: one thin line, one sentence, shown only in preview mode. */
+.preview-bar {
+	margin: 0;
+	padding: var(--s2) var(--s3);
+	border: 1px solid var(--line);
+	border-left: 3px solid var(--warn);
+	border-radius: var(--radius-sm);
+	background: var(--warn-soft);
+	color: var(--ink-2);
+	font-size: 0.85rem;
+	line-height: 1.45;
+}
+
+.preview-bar strong {
+	color: var(--warn);
+	font-weight: 600;
+}
