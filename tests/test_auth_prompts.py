@@ -90,14 +90,52 @@ def test_short_locales_map_to_dirs():
     assert ap.locale_dir("te") == "te-IN" and ap.locale_dir("en") == "en-IN" and ap.locale_dir("xx") == "en-IN"
 
 
-def test_language_menu_plays_each_option_in_its_own_language_in_key_order():
-    parts = ap.PromptStore().plan_menu()
+def test_language_menu_plays_each_option_in_its_own_language_then_continue_in_the_call_language():
+    parts = ap.PromptStore().plan_menu("ta-IN")
     clips = [p for p in parts if p.kind == "clip"]
-    assert [p.language for p in clips] == list(pt.LANGUAGE_BY_KEY.values())
-    assert [p.text for p in clips] == [pt.TEXT[c]["option"] for c in pt.LANGUAGES]
-    assert [p.kind for p in parts] == ["clip"] + ["silence", "clip"] * 9
+    assert [p.language for p in clips] == [*pt.LANGUAGE_BY_KEY.values(), "ta-IN"]
+    assert [p.text for p in clips] == [*(pt.TEXT[c]["option"] for c in pt.LANGUAGES), pt.TEXT["ta-IN"]["continue"]]
+    assert clips[-1].key == "continue"
+    assert [p.kind for p in parts] == ["clip"] + ["silence", "clip"] * 10
     assert set(parts[1].pcm) == {0}
-    assert ap.PromptStore().plan_key(ap.LANGUAGE_MENU, "ta-IN") == parts  # same menu whatever the call language
+    assert ap.PromptStore().plan_key(ap.LANGUAGE_MENU, "ta-IN") == parts
+    assert ap.PromptStore().plan_key(ap.LANGUAGE_MENU, "te-IN")[-1].text == pt.TEXT["te-IN"]["continue"]
+
+
+@pytest.mark.parametrize("locale", ap.LOCALES)
+def test_continue_line_names_its_own_language_and_hash(locale):
+    line = pt.TEXT[locale]["continue"]
+    assert line and not any(ch.isdigit() for ch in line)
+    assert pt.menu_text(locale).endswith(line)
+
+
+def test_store_with_output_rate_resamples_every_clip_once_at_load(monkeypatch):
+    calls = []
+    real = ap.resample_pcm
+
+    def counting(pcm, rin, rout):
+        calls.append((rin, rout))
+        return real(pcm, rin, rout)
+    monkeypatch.setattr(ap, "resample_pcm", counting)
+    store = ap.PromptStore(output_rate=24000)
+    assert store.preload() == len(ap.LOCALES) * len(pt.PROMPT_KEYS)
+    assert len(calls) == len(ap.LOCALES) * len(pt.PROMPT_KEYS) and set(calls) == {(16000, 24000)}
+    pcm16, _ = ap.PromptStore().load("greeting", "te-IN")
+    pcm24, rate = store.load("greeting", "te-IN")
+    assert rate == 24000 and abs(len(pcm24) / 2 - len(pcm16) / 2 * 1.5) <= 64
+    parts = store.plan_menu("te-IN")
+    assert {p.sample_rate for p in parts} == {24000}  # gaps too, so playback never resamples
+    store.plan_key("enter", "te-IN")
+    assert len(calls) == len(ap.LOCALES) * len(pt.PROMPT_KEYS)  # nothing resampled at play time
+
+
+def test_pure_python_resample_keeps_length_and_level(monkeypatch):
+    import array
+    monkeypatch.setitem(sys.modules, "livekit", None)  # the fallback used where LiveKit is not installed
+    src = array.array("h", [1000] * 1600).tobytes()
+    out = array.array("h")
+    out.frombytes(ap.resample_pcm(src, 16000, 24000))
+    assert 2390 <= len(out) <= 2410 and max(abs(v - 1000) for v in out[10:-10]) <= 2
 
 
 # ----------------------------------------------------------------------------------------------- fallback
@@ -121,8 +159,8 @@ def test_stale_clip_is_treated_as_missing(tmp_path, caplog):
 def test_missing_menu_option_is_spoken_live_in_that_options_language(tmp_path):
     store = store_copy(tmp_path, "pa-IN", drop=["option"])
     parts = [p for p in store.plan_menu() if p.kind != "silence"]
-    assert [(p.kind, p.language) for p in parts][-1] == ("tts", "pa-IN")
-    assert all(p.kind == "clip" for p in parts[:-1])
+    assert [(p.kind, p.language) for p in parts][-2] == ("tts", "pa-IN")  # the last option; "continue" follows
+    assert all(p.kind == "clip" for p in parts[:-2]) and parts[-1].kind == "clip"
 
 
 def test_no_clip_directory_at_all_still_speaks_every_line(tmp_path):

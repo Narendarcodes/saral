@@ -11,6 +11,11 @@
       "sha256": "14a71eb90cf75a28bb2d69288c6ed202b929b8b4f48fba9271d1099fefff2d4b",
       "duration_s": 3.603
     },
+    "continue": {
+      "text": "हिंदी में जारी रखने के लिए हैश दबाएँ।",
+      "sha256": "3f3dd71f34b3c7e79eb92efeab6b5c6c79082681424f9d5def1344e5976c33f0",
+      "duration_s": 2.576
+    },
     "enter": {
       "text": "कृपया अपने लोन आवेदन नंबर के आखिरी चार अंक दर्ज करें।",
       "sha256": "d8d88269410c183dada56efba402206d18dc4ccbb6879e35b6769240785e7914",

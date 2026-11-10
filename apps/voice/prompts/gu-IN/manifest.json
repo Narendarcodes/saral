@@ -11,6 +11,11 @@
       "sha256": "8b6167ed01bce005ea68f62c35230dc4a1aa971bc6e435353d0b7d477b6c28be",
       "duration_s": 4.302
     },
+    "continue": {
+      "text": "ગુજરાતીમાં ચાલુ રાખવા માટે હેશ દબાવો.",
+      "sha256": "1812aaf38e4f0d46e6940592955314ec3168878b305e7dea5d88fb557e5a7fc6",
+      "duration_s": 2.796
+    },
     "enter": {
       "text": "કૃપા કરીને તમારા લોન અરજી નંબરના છેલ્લા ચાર અંક દાખલ કરો.",
       "sha256": "d1f271ee28c50c3eceec8e26ef640ab5c9b1627ecb1f04495b43d1cdfeffc9bc",

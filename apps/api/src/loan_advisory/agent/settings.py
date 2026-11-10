@@ -17,8 +17,9 @@
 Voice worker speech (Gnani only; GnaniSpeechSettings):
     GNANI_API_KEY            read by the Gnani plugin from the environment; never stored, logged or passed around here.
     GNANI_STT_MODEL          prisma-v3.0 (default) | prisma-v2.5
-    GNANI_STT_LANGUAGE       locale (default: en-IN / hi-IN,en-IN / te-IN,en-IN by session locale) | indic-auto |
-                             a code such as te-IN | a list of up to four such as hi-IN,en-IN (Prisma v3.0)
+    GNANI_STT_LANGUAGE       locale (default: en-IN / hi-IN / te-IN by session locale) | indic-auto | one code such
+                             as te-IN. Exactly one locale: Prisma streaming refuses a comma list ("exactly one
+                             locale is required"); format=codemix keeps English loan words (EMI, CIBIL) in Latin.
     GNANI_STT_FORMAT         codemix (default) | verbatim | transcribe | transliterate
     GNANI_TTS_MODEL          timbre-v3.0 (default) | timbre-v2.5   (timbre-v2.0 is retired and refused)
     GNANI_TTS_VOICE          Tarika (default); a Timbre v3.0 catalog voice when the model is v3.0
@@ -107,19 +108,23 @@ TIMBRE_V3_VOICES = ("Shivani", "Lakshmi", "Kalpana", "Chetana", "Vasudha", "Riya
 TTS_SPEED_MIN, TTS_SPEED_MAX = 0.85, 1.15
 TTS_SAMPLE_RATES = (8000, 16000, 22050, 44100)  # what livekit-plugins-gnani 1.8.11 accepts
 TTS_METHODS = ("sse", "websocket", "rest")
-# Session locale (en/hi/te, from the Frappe assertion) -> Gnani language. STT also hears English, because borrowers
-# mix it in ("EMI", "CIBIL"); Prisma v3.0 treats the list as a hint, not a lock.
-LOCALE_STT = {"en": "en-IN", "hi": "hi-IN,en-IN", "te": "te-IN,en-IN"}
+# Session locale (en/hi/te, from the Frappe assertion) -> Gnani language. Exactly ONE locale: the Prisma streaming
+# server refuses a list ("Invalid language_code: exactly one locale is required", checked live 2026-11-10) and ignores
+# a multi_lang_codes header. English loan words ("EMI", "CIBIL") still come through via format=codemix.
+LOCALE_STT = {"en": "en-IN", "hi": "hi-IN", "te": "te-IN"}
 LOCALE_TTS = {"en": "en-IN", "hi": "hi-IN", "te": "te-IN"}
+
+
+def single_stt_locale(value: str) -> str:
+    """The one locale Prisma streaming accepts for `value`: a legacy comma list ("te-IN,en-IN", what older .env files
+    and settings sent) becomes its first locale; anything else is returned unchanged."""
+    return value.split(",")[0].strip() if isinstance(value, str) and "," in value else value
 
 
 def _stt_language_ok(value: str, model: str) -> bool:
     if value == "indic-auto":
         return model == "prisma-v3.0"
-    parts = [p.strip() for p in value.split(",")]
-    if not parts or any(p not in GNANI_LANGS for p in parts) or len(set(parts)) != len(parts):
-        return False
-    return len(parts) == 1 or (model == "prisma-v3.0" and len(parts) <= 4)
+    return value in GNANI_LANGS  # one locale only: streaming refuses a comma list
 
 
 @dataclass(frozen=True)
@@ -127,7 +132,7 @@ class GnaniSpeechSettings:
     """Gnani Prisma (STT) + Timbre (TTS) configuration. The API key is never stored here: the plugin reads
     GNANI_API_KEY from the environment itself, so it never reaches a log line or a repr."""
     stt_model: str = "prisma-v3.0"
-    stt_language: str = "locale"      # "locale" = derive from the session locale (LOCALE_STT); else a Gnani code/list
+    stt_language: str = "locale"      # "locale" = derive from the session locale (LOCALE_STT); else one Gnani code
     stt_format: str = "codemix"       # Prisma v3.0: English words stay in Latin script
     tts_model: str = "timbre-v3.0"
     tts_voice: str = "Tarika"         # warm banking / customer-care voice; never the plugin default
@@ -144,8 +149,14 @@ class GnaniSpeechSettings:
             raise ValueError(f"GNANI_STT_FORMAT must be one of {GNANI_STT_FORMATS}, got {self.stt_format!r}")
         if self.stt_format in GNANI_V3_ONLY_FORMATS and self.stt_model != "prisma-v3.0":
             raise ValueError(f"GNANI_STT_FORMAT={self.stt_format} needs prisma-v3.0")
+        if "," in self.stt_language:  # an old "<language>,en-IN" list: keep its first locale (streaming refuses lists)
+            parts = [p.strip() for p in self.stt_language.split(",")]
+            if any(p not in GNANI_LANGS for p in parts):
+                raise ValueError(f"GNANI_STT_LANGUAGE {self.stt_language!r} is not a valid language for {self.stt_model}")
+            object.__setattr__(self, "stt_language", parts[0])
         if self.stt_language != "locale" and not _stt_language_ok(self.stt_language, self.stt_model):
-            raise ValueError(f"GNANI_STT_LANGUAGE {self.stt_language!r} is not a valid language (or list) for {self.stt_model}")
+            raise ValueError(f"GNANI_STT_LANGUAGE {self.stt_language!r} is not a valid language for {self.stt_model} "
+                             "(one locale such as te-IN, or indic-auto)")
         if self.tts_model not in GNANI_TTS_MODELS:  # timbre-v2.0 is retired
             raise ValueError(f"GNANI_TTS_MODEL must be one of {GNANI_TTS_MODELS}, got {self.tts_model!r}")
         if not self.tts_voice:

@@ -5,15 +5,20 @@ A phone call arrives through LiveKit SIP. The caller ID (the SIP from-number, pa
 (one of the ten Gnani codes, default en-IN). Then:
 
     greeting, in that language, with no name or account data:  "Welcome to Saral. To change language, press nine."
-    9 -> language menu, each option in its own language:        1 English ... 9 Gujarati, 0 Punjabi
+    9 -> language menu, each option in its own language:        1 English ... 9 Gujarati, 0 Punjabi, then (in the
+                                                                 call's language) "To continue in <it>, press hash."
+    # (greeting or menu) -> continue in the current language at once
     one factor only:                                            "Please enter the last four digits of your loan
                                                                  application number."
     wrong digits:                                               "That didn't match. Please try again."  (no read-back)
     three mismatches lock verification for the rest of the call.
 
 `9` changes language only while the greeting plays and for LANGUAGE_WINDOW_S after it; once the enter-digits prompt
-has started, 9 is an ordinary digit (a last-4 can start with 9). In the menu an invalid key or no key replays it once,
-then the call continues in the current language.
+has started, 9 is an ordinary digit (a last-4 can start with 9). `#` during the greeting (or its window) or the menu
+continues in the current language at once: it cuts the prompt that is playing (when the worker can interrupt it) and
+goes straight on. The menu plays ONCE, then waits MENU_WAIT_S for a key; with no choice the call keeps its current
+language and goes on (no replay). Keys that mean nothing at that point (`*`, other digits during the greeting) are
+dropped.
 
 An unknown number (or no directory) gets the same en-IN greeting with the press-9 option, then the unknown-caller line
 in whatever language the caller picked; it is never told anything about an account.
@@ -58,8 +63,9 @@ MAX_ATTEMPTS = 3
 NUDGE_S = 8.0
 GIVE_UP_S = 15.0
 LANGUAGE_KEY = "9"
+CONTINUE_KEY = "#"        # greeting / menu: carry on in the current language now
 LANGUAGE_WINDOW_S = 3.0   # after the greeting, how long a 9 still opens the language menu
-MENU_WAIT_S = 8.0         # how long the language menu waits for a key before replaying (once)
+MENU_WAIT_S = 6.0         # after the menu has played (once), how long it waits for a key before keeping the language
 MASK = "*" * DIGITS
 
 FACTOR = "application"    # the one factor: last 4 digits of the loan application number
@@ -226,6 +232,7 @@ class _NoKeypress(Exception):
 
 
 Speak = Callable[[str], Awaitable[None]]  # a PROMPT_KEYS key (or LANGUAGE_MENU), played in the call's language
+Interrupt = Callable[[], None]            # stop the prompt that is playing now (the worker's SpeechHandle.interrupt)
 
 
 class KeypadCall:
@@ -234,8 +241,9 @@ class KeypadCall:
 
     def __init__(self, *, speak: Speak, language: str = DEFAULT_LANGUAGE,
                  on_language: Callable[[str], None] | None = None, nudge_s: float = NUDGE_S,
-                 give_up_s: float = GIVE_UP_S, window_s: float = LANGUAGE_WINDOW_S, menu_wait_s: float = MENU_WAIT_S):
-        self._speak, self._on_language = speak, on_language
+                 give_up_s: float = GIVE_UP_S, window_s: float = LANGUAGE_WINDOW_S, menu_wait_s: float = MENU_WAIT_S,
+                 interrupt: Interrupt | None = None):
+        self._speak, self._on_language, self._interrupt = speak, on_language, interrupt
         self.language = valid_language(language)
         self.nudge_s, self.give_up_s, self.window_s, self.menu_wait_s = nudge_s, give_up_s, window_s, menu_wait_s
         self._keys: asyncio.Queue[str] = asyncio.Queue()
@@ -294,34 +302,73 @@ class KeypadCall:
         if self._on_language is not None:
             self._on_language(code)
 
+    async def _speak_listening(self, key: str, wanted: Callable[[str], bool]) -> str | None:
+        """Play prompt `key` while listening to the keypad. The first key for which `wanted` is true stops the prompt
+        (through the worker's `interrupt`, when given) and is returned; any other key is dropped. None when the prompt
+        played to its end without a wanted key."""
+        self.step += 1
+        speech = asyncio.ensure_future(self._speak(key))
+        try:
+            while True:
+                getter = asyncio.ensure_future(self._keys.get())
+                done, _ = await asyncio.wait({speech, getter}, return_when=asyncio.FIRST_COMPLETED)
+                if getter in done:
+                    pressed = getter.result()
+                    if wanted(pressed):
+                        if not speech.done() and self._interrupt is not None:
+                            try:
+                                self._interrupt()
+                            except Exception:  # the prompt then just plays out
+                                log.warning("could not cut the prompt short")
+                        await speech
+                        return pressed
+                    if not speech.done():
+                        continue
+                else:
+                    getter.cancel()
+                await speech  # re-raises a failure of the prompt itself
+                return None
+        finally:
+            if not speech.done():
+                speech.cancel()
+
     async def _language_menu(self) -> None:
-        """Ten options, each in its own language. Invalid key or no key: replay once, then keep the current one."""
-        for _ in range(2):
-            self._drain()
-            await self._prompt(LANGUAGE_MENU)
-            key = await self._key_within(self.menu_wait_s)
-            if key in LANGUAGE_BY_KEY:
-                self._set_language(LANGUAGE_BY_KEY[key])
+        """Ten options, each in its own language, then "to continue in <current language>, press hash", played ONCE.
+        A language key (during it or within `menu_wait_s` after) switches; `#` or no key keeps the current language
+        and goes on. `*` is dropped."""
+        def wanted(k: str) -> bool:
+            return k in LANGUAGE_BY_KEY or k == CONTINUE_KEY
+        self._drain()
+        key = await self._speak_listening(LANGUAGE_MENU, wanted)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.menu_wait_s
+        while key is None or not wanted(key):
+            key = await self._key_within(deadline - loop.time())
+            if key is None:
+                log.info("language menu: no choice; keeping %s", self.language)
                 return
-        log.info("language menu: no valid choice; keeping %s", self.language)
+        if key == CONTINUE_KEY:
+            log.info("language menu: # pressed; keeping %s", self.language)
+            return
+        self._set_language(LANGUAGE_BY_KEY[key])
 
     async def _greet(self) -> None:
-        """The opening line, once per call. A 9 keyed during it or within `window_s` after it opens the menu; any
-        other early key is dropped (the enter-digits prompt has not been played yet)."""
+        """The opening line, once per call. A 9 keyed during it or within `window_s` after it opens the menu; a `#`
+        goes straight on in the current language (cutting the greeting short); any other early key is dropped (the
+        enter-digits prompt has not been played yet)."""
         if self.greeted:
             return
         self.greeted = True
         self._drain()
-        await self._prompt("greeting")
+        key = await self._speak_listening("greeting", lambda k: k in (LANGUAGE_KEY, CONTINUE_KEY))
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.window_s
-        while True:
+        while key not in (LANGUAGE_KEY, CONTINUE_KEY):
             key = await self._key_within(deadline - loop.time())
             if key is None:
                 return
-            if key == LANGUAGE_KEY:
-                await self._language_menu()
-                return
+        if key == LANGUAGE_KEY:
+            await self._language_menu()
 
     async def run_unverifiable(self, reason: str) -> str:
         """Unknown caller / no directory: greeting (with the press-9 option), then the `reason` line."""
@@ -342,9 +389,9 @@ class KeypadVerifier(KeypadCall):
     def __init__(self, record: CallerRecord, key: bytes, *, speak: Speak,
                  on_language: Callable[[str], None] | None = None, max_attempts: int = MAX_ATTEMPTS,
                  nudge_s: float = NUDGE_S, give_up_s: float = GIVE_UP_S, window_s: float = LANGUAGE_WINDOW_S,
-                 menu_wait_s: float = MENU_WAIT_S):
+                 menu_wait_s: float = MENU_WAIT_S, interrupt: Interrupt | None = None):
         super().__init__(speak=speak, language=record.language, on_language=on_language, nudge_s=nudge_s,
-                         give_up_s=give_up_s, window_s=window_s, menu_wait_s=menu_wait_s)
+                         give_up_s=give_up_s, window_s=window_s, menu_wait_s=menu_wait_s, interrupt=interrupt)
         self.record, self._key = record, key
         self.max_attempts = max_attempts
         self.verified = False

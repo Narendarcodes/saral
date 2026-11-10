@@ -62,18 +62,19 @@ def test_speed_outside_range_is_refused_not_clamped(speed):
 
 def test_locale_maps_to_gnani_languages():
     g = S.GnaniSpeechSettings()
-    assert [g.stt_language_for(x) for x in ("en", "hi", "te", "xx")] == ["en-IN", "hi-IN,en-IN", "te-IN,en-IN", "en-IN"]
+    assert [g.stt_language_for(x) for x in ("en", "hi", "te", "xx")] == ["en-IN", "hi-IN", "te-IN", "en-IN"]
     assert [g.tts_language_for(x) for x in ("en", "hi", "te")] == ["en-IN", "hi-IN", "te-IN"]
     fixed = S.GnaniSpeechSettings(stt_language="te-IN", tts_language="auto")
     assert fixed.stt_language_for("hi") == "te-IN" and fixed.tts_language_for("hi") == "auto"
 
 
-@pytest.mark.parametrize("lang,ok", [("en-IN", True), ("hi-IN,en-IN", True), ("indic-auto", True),
-                                     ("te-IN,hi-IN,en-IN,ta-IN", True), ("te-IN,hi-IN,en-IN,ta-IN,kn-IN", False),
-                                     ("te", False), ("hi-IN,hi-IN", False), ("fr-FR", False)])
+@pytest.mark.parametrize("lang,ok", [("en-IN", "en-IN"), ("indic-auto", "indic-auto"), ("hi-IN,en-IN", "hi-IN"),
+                                     ("te-IN,hi-IN,en-IN,ta-IN", "te-IN"), ("te", False), ("fr-FR", False),
+                                     ("te-IN,fr-FR", False)])
 def test_stt_language_validation(lang, ok):
+    # one locale only: an old "<language>,en-IN" list keeps its first locale (Prisma streaming refuses lists)
     if ok:
-        assert S.GnaniSpeechSettings(stt_language=lang).stt_language == lang
+        assert S.GnaniSpeechSettings(stt_language=lang).stt_language == ok
     else:
         with pytest.raises(ValueError):
             S.GnaniSpeechSettings(stt_language=lang)
@@ -161,7 +162,7 @@ def test_tts_refuses_retired_model_even_when_built_directly(gs):
 def test_build_stt_streams_prisma_v3_headers(gs):
     stt = gs.build_stt(S.GnaniSpeechSettings(), "te")
     assert stt.provider == "Gnani" and stt.model == "prisma-v3.0" and stt.capabilities.streaming
-    assert stt.language_code == "te-IN,en-IN" and stt.output_format == "codemix"
+    assert stt.language_code == "te-IN" and stt.output_format == "codemix"
 
     async def go():
         stream = stt.stream()
@@ -170,7 +171,7 @@ def test_build_stt_streams_prisma_v3_headers(gs):
         finally:
             await stream.aclose()
     h = asyncio.run(go())
-    assert h["model"] == "prisma-v3.0" and h["language_code"] == "te-IN,en-IN" and h["format"] == "codemix"
+    assert h["model"] == "prisma-v3.0" and h["language_code"] == "te-IN" and h["format"] == "codemix"
     assert h["x-sample-rate"] == "16000" and h["x-api-key-id"] == DUMMY_KEY
 
 
@@ -284,3 +285,103 @@ def test_tts_sse_round_trip_with_fake_http(gs):
     assert posted["body"]["model"] == "timbre-v3.0" and posted["body"]["voice"] == "Tarika"
     assert posted["body"]["language"] == "te-IN" and posted["body"]["speed"] == 1.1
     assert posted["headers"]["X-API-Key-ID"] == DUMMY_KEY
+
+
+# --------------------------------------------------------------- 2026-11-10 call audit: one locale, one TLS context
+ALL_LOCALES = ("en-IN", "hi-IN", "te-IN", "ta-IN", "kn-IN", "ml-IN", "mr-IN", "bn-IN", "gu-IN", "pa-IN")
+
+
+@pytest.mark.parametrize("locale", ALL_LOCALES)
+def test_phone_call_language_code_is_exactly_one_locale(gs, locale):
+    """Prisma streaming refused "te-IN,en-IN" ("exactly one locale is required"): every call language sends one."""
+    assert gs.call_stt_language(locale) == locale
+    stt = gs.build_stt_for_language(S.GnaniSpeechSettings(), locale)
+
+    async def go():
+        stream = stt.stream()
+        try:
+            return stream.connect_headers()
+        finally:
+            await stream.aclose()
+    h = asyncio.run(go())
+    assert h["language_code"] == locale and "," not in h["language_code"]
+    assert "multi_lang_codes" not in h  # not accepted on streaming
+
+
+@pytest.mark.parametrize("locale", ["en", "hi", "te", "xx"])
+def test_voice_mode_language_code_is_exactly_one_locale(gs, locale):
+    stt = gs.build_stt(S.GnaniSpeechSettings(), locale)
+    assert "," not in stt.language_code and stt.language_code in ALL_LOCALES
+    legacy = gs.build_stt(S.GnaniSpeechSettings.from_env({"GNANI_STT_LANGUAGE": "te-IN,en-IN"}), locale)
+    assert legacy.language_code == "te-IN"
+
+
+def test_a_stray_comma_list_never_reaches_the_header(gs):
+    stt = gs.PrismaSTT(model="prisma-v3.0", language="hi-IN,en-IN", fmt="codemix")
+
+    async def go():
+        stream = stt.stream(language="te-IN,en-IN")
+        try:
+            return stt.language_code, stream.connect_headers()["language_code"]
+        finally:
+            await stream.aclose()
+    assert asyncio.run(go()) == ("hi-IN", "te-IN")
+    assert gs.single_locale("indic-auto") == "indic-auto" and gs.single_locale("") == "en-IN"
+
+
+def test_ssl_context_is_built_once_and_passed_to_every_stt_socket(gs, monkeypatch):
+    import ssl
+
+    import websockets
+    from livekit import rtc
+
+    gs.ssl_context.cache_clear()
+    built = []
+    real = ssl.create_default_context
+
+    def counting(*a, **kw):
+        built.append(kw.get("cafile"))
+        return real(*a, **kw)
+    monkeypatch.setattr(ssl, "create_default_context", counting)
+    seen = []
+
+    class FakeWS:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def recv(self):
+            return json.dumps({"type": "connected"})
+
+        async def send(self, data):
+            pass
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    def fake_connect(url, additional_headers=None, **kw):
+        seen.append(kw.get("ssl"))
+        return FakeWS()
+    monkeypatch.setattr(websockets, "connect", fake_connect)
+    stt = gs.build_stt(S.GnaniSpeechSettings(), "te")
+
+    async def one_session():
+        stream = stt.stream()
+        stream.push_frame(rtc.AudioFrame(b"\x00\x00" * 1600, 16000, 1, 1600))
+        stream.end_input()
+        async for _ in stream:
+            pass
+    for _ in range(3):
+        asyncio.run(asyncio.wait_for(one_session(), timeout=10))
+    assert len(built) == 1 and len(seen) == 3
+    assert all(isinstance(c, ssl.SSLContext) for c in seen) and seen[0] is seen[1] is seen[2] is gs.ssl_context()
+    try:
+        import certifi
+        assert built[0] == certifi.where()  # certifi's bundle, not the per-call Windows store walk
+    except ImportError:
+        pass

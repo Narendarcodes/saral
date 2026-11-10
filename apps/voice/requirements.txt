@@ -6,3 +6,6 @@
 livekit-agents[silero,gnani]~=1.8.11
 livekit-plugins-gnani==1.8.11
 aiohttp>=3.9
+# One TLS context per worker from certifi's CA bundle (gnani_speech.ssl_context): building a context per STT socket
+# from the Windows store stalled the event loop ~0.5 s each.
+certifi>=2024.2.2

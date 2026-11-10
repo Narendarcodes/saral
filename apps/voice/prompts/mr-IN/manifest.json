@@ -11,6 +11,11 @@
       "sha256": "b798ee540744c1c9512a57c9aecd351e028a4faa0b7c5b9285d76debda975d7e",
       "duration_s": 4.014
     },
+    "continue": {
+      "text": "मराठीत पुढे सुरू ठेवण्यासाठी हॅश दाबा.",
+      "sha256": "0d4f5ff9a6b253e5b01eb2f34e7f8d7b79783f96e371e2f7f4dc8c692ff98b8e",
+      "duration_s": 2.979
+    },
     "enter": {
       "text": "कृपया आपल्या कर्ज अर्ज क्रमांकाचे शेवटचे चार अंक टाका.",
       "sha256": "e7f0c9e2a7204fffa74de4c7fc920060dd5e49d9c9c367be6b3839b2afc69ce5",

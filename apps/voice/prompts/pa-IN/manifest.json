@@ -11,6 +11,11 @@
       "sha256": "96ec4ef1c6d3055c72a15336d58f58698ed5964aa74ccacd38614f22c3452c2d",
       "duration_s": 4.192
     },
+    "continue": {
+      "text": "ਪੰਜਾਬੀ ਵਿੱਚ ਜਾਰੀ ਰੱਖਣ ਲਈ ਹੈਸ਼ ਦਬਾਓ।",
+      "sha256": "712d55022ba0a8f16e2efde912585ad0b3fd3d153e55e07c8d8e2b4bbcf6040c",
+      "duration_s": 2.752
+    },
     "enter": {
       "text": "ਕਿਰਪਾ ਕਰਕੇ ਆਪਣੇ ਲੋਨ ਅਰਜ਼ੀ ਨੰਬਰ ਦੇ ਆਖਰੀ ਚਾਰ ਅੰਕ ਦਰਜ ਕਰੋ।",
       "sha256": "8b8f80adc67ad848cdb2e1b599354d823e2bcdaf0e79667299553d9dd146ab46",
