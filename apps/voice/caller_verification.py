@@ -354,14 +354,17 @@ class KeypadCall:
         self._set_language(LANGUAGE_BY_KEY[key])
 
     async def _greet(self) -> None:
-        """The opening line, once per call. A 9 keyed during it or within `window_s` after it opens the menu; a `0`
+        """The opening line plus "to continue in <language>, press zero", once per call. A 9 keyed during them or within `window_s` after it opens the menu; a `0`
         goes straight on in the current language (cutting the greeting short); any other early key is dropped (the
         enter-digits prompt has not been played yet)."""
         if self.greeted:
             return
         self.greeted = True
         self._drain()
-        key = await self._speak_listening("greeting", lambda k: k in (LANGUAGE_KEY, CONTINUE_KEY))
+        wanted = lambda k: k in (LANGUAGE_KEY, CONTINUE_KEY)  # noqa: E731
+        key = await self._speak_listening("greeting", wanted)
+        if key is None:  # "To continue in <current language>, press zero." right after the press-9 offer
+            key = await self._speak_listening("continue", wanted)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.window_s
         while key not in (LANGUAGE_KEY, CONTINUE_KEY):

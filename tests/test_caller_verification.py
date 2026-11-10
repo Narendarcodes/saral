@@ -145,7 +145,7 @@ def test_key_from_env_fails_closed_when_missing_or_short():
 def test_greeting_in_directory_language_then_enter_then_verified():
     c = Caller([None, APP4])
     assert run(c) == cv.VERIFIED and c.v.verified and c.v.factor == "application"
-    assert c.spoken == ["greeting", "enter", "verified"]
+    assert c.spoken == ["greeting", "continue", "enter", "verified"]
     assert set(c.langs) == {"te-IN"} and c.changes == []
 
 
@@ -272,7 +272,7 @@ def test_zero_in_the_greeting_window_goes_straight_on():
         out = await task
         return out, spoken, loop.time() - t0
     out, spoken, took = asyncio.run(go())
-    assert out == cv.VERIFIED and spoken == ["greeting", "enter", "verified"] and took < 1.0
+    assert out == cv.VERIFIED and spoken == ["greeting", "continue", "enter", "verified"] and took < 1.0
 
 
 def test_zero_during_the_menu_cuts_it_and_keeps_the_language():
@@ -360,7 +360,7 @@ def test_other_keys_during_the_greeting_are_dropped():
 def test_mismatch_says_try_again_then_success():
     c = Caller([None, "0000", APP4])
     assert run(c) == cv.VERIFIED and c.v.failures == 1
-    assert c.spoken == ["greeting", "enter", "no_match", "verified"]
+    assert c.spoken == ["greeting", "continue", "enter", "no_match", "verified"]
     assert pt.TEXT["en-IN"]["no_match"] == "That didn't match. Please try again."
 
 
@@ -375,7 +375,7 @@ def test_lockout_after_three_failures_and_stays_locked_without_replaying():
 def test_hash_and_star_in_the_greeting_are_dropped():
     c = Caller(["#*", APP4])
     assert run(c) == cv.VERIFIED and c.v.language == "te-IN" and c.changes == []
-    assert c.spoken == ["greeting", "enter", "verified"]
+    assert c.spoken == ["greeting", "continue", "enter", "verified"]
 
 
 def test_zero_in_the_greeting_continues_and_is_then_an_ordinary_digit():
@@ -393,7 +393,7 @@ def test_star_clears_and_hash_is_ignored_while_typing():
 def test_no_keypress_nudges_once_and_ends_at_15s():
     c = Caller([None, None])
     assert run(c) == cv.TIMEOUT and not c.v.verified and c.v.failures == 0
-    assert c.spoken == ["greeting", "enter", "nudge", "timeout"]
+    assert c.spoken == ["greeting", "continue", "enter", "nudge", "timeout"]
 
 
 def test_key_after_nudge_continues():
@@ -527,3 +527,10 @@ def test_seed_script_refuses_without_key_or_with_a_bad_language(tmp_path, monkey
     monkeypatch.setenv(cv.KEY_ENV, KEY.decode())
     assert sd.main(["--out", str(tmp_path / "y.json"), "--language", "CUS=fr-FR"]) == 2
     assert not (tmp_path / "y.json").exists()
+
+
+def test_greeting_offers_zero_to_continue_right_after_it():
+    c = Caller([None, APP4])
+    run(c)
+    assert c.spoken[:2] == ["greeting", "continue"]
+    assert "press zero" in pt.TEXT["en-IN"]["continue"]
