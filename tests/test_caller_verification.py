@@ -171,11 +171,12 @@ def test_menu_key_mapping(key, code):
 
 def test_menu_mapping_is_the_owner_design():
     assert pt.LANGUAGE_BY_KEY == {"1": "en-IN", "2": "hi-IN", "3": "te-IN", "4": "ta-IN", "5": "kn-IN",
-                                  "6": "ml-IN", "7": "mr-IN", "8": "bn-IN", "9": "gu-IN", "0": "pa-IN"}
+                                  "6": "ml-IN", "7": "mr-IN", "8": "bn-IN", "9": "gu-IN", "*": "pa-IN"}
+    assert cv.CONTINUE_KEY == "0" and cv.CONTINUE_KEY not in pt.LANGUAGE_BY_KEY
 
 
-def test_menu_star_is_ignored_and_no_key_keeps_the_language_without_replay():
-    c = Caller(["9", "*", APP4])
+def test_menu_hash_is_ignored_and_no_key_keeps_the_language_without_replay():
+    c = Caller(["9", "#", APP4])
     assert run(c) == cv.VERIFIED and c.v.language == "te-IN" and c.changes == []
     assert c.spoken == ["greeting", cv.LANGUAGE_MENU, "enter", "verified"]
 
@@ -186,14 +187,19 @@ def test_menu_no_key_keeps_the_current_language_without_replay():
     assert c.spoken.count(cv.LANGUAGE_MENU) == 1 and c.spoken == ["greeting", cv.LANGUAGE_MENU, "enter", "verified"]
 
 
-def test_menu_hash_keeps_the_current_language():
-    c = Caller(["9", "#", APP4])
+def test_menu_zero_keeps_the_current_language():
+    c = Caller(["9", "0", APP4])
     assert run(c) == cv.VERIFIED and c.v.language == "te-IN" and c.changes == []
     assert c.spoken == ["greeting", cv.LANGUAGE_MENU, "enter", "verified"]
 
 
-def test_menu_star_then_choice_within_the_wait_still_switches():
-    c = Caller(["9", "*2", APP4])
+def test_menu_star_picks_punjabi():
+    c = Caller(["9", "*", APP4])
+    assert run(c) == cv.VERIFIED and c.v.language == "pa-IN" and c.changes == ["pa-IN"]
+
+
+def test_menu_hash_then_choice_within_the_wait_still_switches():
+    c = Caller(["9", "#2", APP4])
     assert run(c) == cv.VERIFIED and c.v.language == "hi-IN" and c.spoken.count(cv.LANGUAGE_MENU) == 1
 
 
@@ -215,8 +221,8 @@ def test_menu_waits_menu_wait_s_after_playing_then_moves_on():
     assert cv.MENU_WAIT_S == 6.0
 
 
-def test_hash_during_the_greeting_goes_straight_on_and_cuts_the_greeting():
-    """# while the greeting plays: the worker's interrupt is called and the enter prompt follows with no window."""
+def test_zero_during_the_greeting_goes_straight_on_and_cuts_the_greeting():
+    """0 while the greeting plays: the worker's interrupt is called and the enter prompt follows with no window."""
     async def go():
         spoken, cut = [], []
         playing = asyncio.Event()
@@ -224,7 +230,7 @@ def test_hash_during_the_greeting_goes_straight_on_and_cuts_the_greeting():
         async def speak(key):
             spoken.append(key)
             if key == "greeting":
-                call.press("#")
+                call.press("0")
                 try:  # a long greeting that only ends when interrupted
                     await asyncio.wait_for(playing.wait(), 5)
                 except asyncio.TimeoutError:
@@ -247,7 +253,7 @@ def test_hash_during_the_greeting_goes_straight_on_and_cuts_the_greeting():
     assert took < 1.0 and call.language == "te-IN"  # no 5 s window, no menu
 
 
-def test_hash_in_the_greeting_window_goes_straight_on():
+def test_zero_in_the_greeting_window_goes_straight_on():
     async def go():
         spoken = []
 
@@ -260,7 +266,7 @@ def test_hash_in_the_greeting_window_goes_straight_on():
                                  nudge_s=1, give_up_s=2)
         task = asyncio.ensure_future(call.run())
         await asyncio.sleep(0.05)
-        call.press("#")
+        call.press("0")
         loop = asyncio.get_running_loop()
         t0 = loop.time()
         out = await task
@@ -269,7 +275,7 @@ def test_hash_in_the_greeting_window_goes_straight_on():
     assert out == cv.VERIFIED and spoken == ["greeting", "enter", "verified"] and took < 1.0
 
 
-def test_hash_during_the_menu_cuts_it_and_keeps_the_language():
+def test_zero_during_the_menu_cuts_it_and_keeps_the_language():
     async def go():
         spoken, cut = [], []
         playing = asyncio.Event()
@@ -279,7 +285,7 @@ def test_hash_during_the_menu_cuts_it_and_keeps_the_language():
             if key == "greeting":
                 call.press("9")
             elif key == cv.LANGUAGE_MENU:
-                call.press("#")
+                call.press("0")
                 try:
                     await asyncio.wait_for(playing.wait(), 5)
                 except asyncio.TimeoutError:
@@ -364,6 +370,19 @@ def test_lockout_after_three_failures_and_stays_locked_without_replaying():
     assert c.spoken[-1] == "locked" and c.spoken.count("locked") == 1
     c.script = [APP4]
     assert run(c) == cv.LOCKED and not c.v.verified and c.spoken.count("locked") == 1  # not spoken again
+
+
+def test_hash_and_star_in_the_greeting_are_dropped():
+    c = Caller(["#*", APP4])
+    assert run(c) == cv.VERIFIED and c.v.language == "te-IN" and c.changes == []
+    assert c.spoken == ["greeting", "enter", "verified"]
+
+
+def test_zero_in_the_greeting_continues_and_is_then_an_ordinary_digit():
+    entry = {**ENTRY, "application_last4": "0470"}
+    c = Caller(["0", "0470"], entry=entry)
+    assert run(c) == cv.VERIFIED and c.v.language == "te-IN" and c.changes == []
+    assert c.spoken == ["greeting", "enter", "verified"]
 
 
 def test_star_clears_and_hash_is_ignored_while_typing():

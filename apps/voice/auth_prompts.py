@@ -8,7 +8,7 @@ scripts/voice/render_auth_prompts.py and stored as small mono WAV clips:
     apps/voice/prompts/<locale>/manifest.json  key -> text, sha256 of the text, duration, model, voice, rate
 
 The language menu is the ten `option` clips (one per locale, each in its own language) in key order, with a short
-silence between them, then the `continue` clip ("To continue in <language>, press hash") of the call's language.
+silence between them, then the `continue` clip ("To continue in <language>, press zero") of the call's language.
 
 Clips are stored at 16 kHz. A store built with `output_rate` (the worker passes LiveKit's audio output rate, 24 kHz)
 resamples every clip ONCE when it is loaded, so playback never resamples on the call's event loop; `preload()` loads
@@ -197,7 +197,7 @@ class PromptStore:
 
     def plan_menu(self, locale: str | None = None) -> list[Part]:
         """The language menu: every locale's `option` line, in key order, each in its own language, with a gap, then
-        the `continue` line ("to continue in <language>, press hash") in the call's `locale`. A missing clip becomes
+        the `continue` line ("to continue in <language>, press zero") in the call's `locale`. A missing clip becomes
         live TTS in that line's language; the others still play from clips."""
         parts: list[Part] = []
         rate = None

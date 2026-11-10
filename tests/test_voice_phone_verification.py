@@ -239,7 +239,7 @@ def test_unknown_caller_can_switch_language_before_the_refusal(worker, cv, pt):
     holder["h"] = cv.dtmf_handler("sip_caller", agent.phone.keypad)
     asyncio.run(agent.verify_caller())
     assert fake.said[-1]["text"] == pt.text("te-IN", "unknown_caller")
-    assert fake.said[1]["text"] == pt.menu_text("en-IN")  # the menu ends with "continue in English, press hash"
+    assert fake.said[1]["text"] == pt.menu_text("en-IN")  # the menu ends with "continue in English, press zero"
 
 
 # ----------------------------------------------------------------------------------------------- gate
@@ -588,8 +588,8 @@ def test_prewarm_loads_every_clip_once_at_24k_and_the_tls_context(worker, monkey
     assert "numpy" in _sys.modules and "websockets.asyncio.messages" in _sys.modules
 
 
-def test_hash_key_through_the_worker_cuts_the_greeting_and_moves_on(worker, cv, pt, directory_env):
-    """The keypad # reaches stop_prompt, which interrupts the playing SpeechHandle (force: prompts are not
+def test_zero_key_through_the_worker_cuts_the_greeting_and_moves_on(worker, cv, pt, directory_env):
+    """The keypad 0 reaches stop_prompt, which interrupts the playing SpeechHandle (force: prompts are not
     speech-interruptible)."""
     rec, _, _ = worker.phone_lookup(PHONE, directory_env)
 
@@ -621,7 +621,7 @@ def test_hash_key_through_the_worker_cuts_the_greeting_and_moves_on(worker, cv, 
         def slow_say(text, **kw):
             async def run():
                 if text == pt.text("te-IN", "greeting"):
-                    agent.phone.verifier.press("#")
+                    agent.phone.verifier.press("0")
                     await asyncio.sleep(5)  # only an interrupt ends it early
                 elif text == pt.text("te-IN", "enter"):
                     for k in APP4:

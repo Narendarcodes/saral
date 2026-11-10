@@ -24,8 +24,8 @@ Phone calls (LiveKit SIP participant, or the web phone), call flow v2 "language 
 the caller ID (`sip.phoneNumber`) is matched to a hashed synthetic applicant directory (CALLER_DIRECTORY,
 CALLER_VERIFY_HMAC_KEY) whose record names the caller's language (ten Gnani codes, default en-IN). The caller hears a
 greeting in that language with no name or account data ("Welcome to Saral. To change language, press nine."), may
-press 9 for a ten-language menu (each option in its own language, then "to continue in <language>, press hash"; it
-plays once and keeps the language after 6 s without a key), or # to go straight on in the current language, then keys the last 4 digits of the loan
+press 9 for a ten-language menu (keys 1-9 and * for Punjabi, each option in its own language, then "to continue in
+<language>, press zero"; it plays once and keeps the language after 6 s without a key), or 0 to go straight on in the current language, then keys the last 4 digits of the loan
 application number (`verify_caller`, caller_verification.py) before any turn reaches the advisory server. No
 read-back; three mismatches lock the call. Digits arrive as `sip_dtmf_received` room events only, and neither the chat
 context nor any log ever holds a digit. Everything the caller hears before verification succeeds is PRE-RECORDED
@@ -233,7 +233,7 @@ class AdvisorAgent(Agent):
         self._http: aiohttp.ClientSession | None = None
         self._verify_task: asyncio.Task | None = None
         self.prompts = prompts or shared_prompts()
-        self._prompt_handle = None  # the auth-phase prompt playing now (so a keypad # can cut it short)
+        self._prompt_handle = None  # the auth-phase prompt playing now (so a keypad 0 can cut it short)
         self._gate_pending = False
         self._tone_default = tone is None
         self.tone = tone or ToneSession(make_hook(locale))
@@ -432,7 +432,7 @@ class AdvisorAgent(Agent):
                 self._prompt_handle = None
 
     def stop_prompt(self) -> None:
-        """Cut the auth-phase prompt playing now (a keypad # or menu choice decided it). Keypad flow only."""
+        """Cut the auth-phase prompt playing now (a keypad 0 or menu choice decided it). Keypad flow only."""
         handle = self._prompt_handle
         done, interrupt = getattr(handle, "done", None), getattr(handle, "interrupt", None)
         if callable(interrupt) and not (callable(done) and done()):

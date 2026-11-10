@@ -3,16 +3,16 @@
 Everything a caller hears BEFORE keypad verification is one of the `PROMPT_KEYS` lines below, played from a clip
 pre-rendered with Timbre v3.0 / voice Tarika (scripts/voice/render_auth_prompts.py -> apps/voice/prompts/<locale>/).
 `option` is one line of the language menu ("For Telugu, press 3", said in Telugu); the menu plays the ten `option`
-clips in key order, then the `continue` clip of the call's current language ("To continue in Telugu, press hash"). Numbers that are read aloud are written as words so every language speaks them the same way.
+clips in key order, then the `continue` clip of the call's current language ("To continue in Telugu, press zero"). Numbers that are read aloud are written as words so every language speaks them the same way.
 
 `LIVE_GREETING` is spoken with live TTS only AFTER verification, so it may carry the caller's first name.
 None of these lines holds a digit the caller keyed, an account detail or a name before verification.
 """
 from __future__ import annotations
 
-# keypad key -> Gnani language code (the language menu)
+# keypad key -> Gnani language code (the language menu; Punjabi is on star, 0 keeps the current language)
 LANGUAGE_BY_KEY = {"1": "en-IN", "2": "hi-IN", "3": "te-IN", "4": "ta-IN", "5": "kn-IN", "6": "ml-IN", "7": "mr-IN",
-                   "8": "bn-IN", "9": "gu-IN", "0": "pa-IN"}
+                   "8": "bn-IN", "9": "gu-IN", "*": "pa-IN"}  # 0 = continue (caller_verification.CONTINUE_KEY)
 LANGUAGES = tuple(LANGUAGE_BY_KEY.values())
 DEFAULT_LANGUAGE = "en-IN"
 LANGUAGE_NAMES = {"en-IN": "English", "hi-IN": "Hindi", "te-IN": "Telugu", "ta-IN": "Tamil", "kn-IN": "Kannada",
@@ -26,7 +26,7 @@ TEXT: dict[str, dict[str, str]] = {
     "en-IN": {
         "greeting": "Welcome to Saral. To change language, press nine.",
         "option": "For English, press one.",
-        "continue": "To continue in English, press hash.",
+        "continue": "To continue in English, press zero.",
         "enter": "Please enter the last four digits of your loan application number.",
         "cleared": "Cleared. Please enter the last four digits again.",
         "nudge": "Please use your phone keypad.",
@@ -45,7 +45,7 @@ TEXT: dict[str, dict[str, str]] = {
     "hi-IN": {
         "greeting": "सरल में आपका स्वागत है। भाषा बदलने के लिए नौ दबाएँ।",
         "option": "हिंदी के लिए दो दबाएँ।",
-        "continue": "हिंदी में जारी रखने के लिए हैश दबाएँ।",
+        "continue": "हिंदी में जारी रखने के लिए शून्य दबाएँ।",
         "enter": "कृपया अपने लोन आवेदन नंबर के आखिरी चार अंक दर्ज करें।",
         "cleared": "मिटा दिया गया। कृपया आखिरी चार अंक फिर से दर्ज करें।",
         "nudge": "कृपया अपने फ़ोन के कीपैड का इस्तेमाल करें।",
@@ -64,7 +64,7 @@ TEXT: dict[str, dict[str, str]] = {
     "te-IN": {
         "greeting": "సరళ్‌కు స్వాగతం. భాష మార్చడానికి తొమ్మిది నొక్కండి.",
         "option": "తెలుగు కోసం మూడు నొక్కండి.",
-        "continue": "తెలుగులో కొనసాగించడానికి హాష్ నొక్కండి.",
+        "continue": "తెలుగులో కొనసాగించడానికి సున్నా నొక్కండి.",
         "enter": "దయచేసి మీ లోన్ దరఖాస్తు నంబర్‌లోని చివరి నాలుగు అంకెలను నమోదు చేయండి.",
         "cleared": "తొలగించాము. దయచేసి చివరి నాలుగు అంకెలను మళ్ళీ నమోదు చేయండి.",
         "nudge": "దయచేసి మీ ఫోన్ కీప్యాడ్‌ను ఉపయోగించండి.",
@@ -83,7 +83,7 @@ TEXT: dict[str, dict[str, str]] = {
     "ta-IN": {
         "greeting": "சரலுக்கு வரவேற்கிறோம். மொழியை மாற்ற ஒன்பதை அழுத்தவும்.",
         "option": "தமிழுக்கு நான்கை அழுத்தவும்.",
-        "continue": "தமிழில் தொடர ஹாஷை அழுத்தவும்.",
+        "continue": "தமிழில் தொடர பூஜ்ஜியத்தை அழுத்தவும்.",
         "enter": "உங்கள் கடன் விண்ணப்ப எண்ணின் கடைசி நான்கு இலக்கங்களை உள்ளிடவும்.",
         "cleared": "அழிக்கப்பட்டது. கடைசி நான்கு இலக்கங்களை மீண்டும் உள்ளிடவும்.",
         "nudge": "உங்கள் தொலைபேசி கீபேடைப் பயன்படுத்தவும்.",
@@ -103,7 +103,7 @@ TEXT: dict[str, dict[str, str]] = {
     "kn-IN": {
         "greeting": "ಸರಳ್‌ಗೆ ಸ್ವಾಗತ. ಭಾಷೆ ಬದಲಾಯಿಸಲು ಒಂಬತ್ತು ಒತ್ತಿ.",
         "option": "ಕನ್ನಡಕ್ಕಾಗಿ ಐದು ಒತ್ತಿ.",
-        "continue": "ಕನ್ನಡದಲ್ಲಿ ಮುಂದುವರಿಸಲು ಹ್ಯಾಶ್ ಒತ್ತಿ.",
+        "continue": "ಕನ್ನಡದಲ್ಲಿ ಮುಂದುವರಿಸಲು ಸೊನ್ನೆ ಒತ್ತಿ.",
         "enter": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಸಾಲದ ಅರ್ಜಿ ಸಂಖ್ಯೆಯ ಕೊನೆಯ ನಾಲ್ಕು ಅಂಕಿಗಳನ್ನು ನಮೂದಿಸಿ.",
         "cleared": "ಅಳಿಸಲಾಗಿದೆ. ದಯವಿಟ್ಟು ಕೊನೆಯ ನಾಲ್ಕು ಅಂಕಿಗಳನ್ನು ಮತ್ತೆ ನಮೂದಿಸಿ.",
         "nudge": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಫೋನ್ ಕೀಪ್ಯಾಡ್ ಬಳಸಿ.",
@@ -122,7 +122,7 @@ TEXT: dict[str, dict[str, str]] = {
     "ml-IN": {
         "greeting": "സരളിലേക്ക് സ്വാഗതം. ഭാഷ മാറ്റാൻ ഒൻപത് അമർത്തുക.",
         "option": "മലയാളത്തിന് ആറ് അമർത്തുക.",
-        "continue": "മലയാളത്തിൽ തുടരാൻ ഹാഷ് അമർത്തുക.",
+        "continue": "മലയാളത്തിൽ തുടരാൻ പൂജ്യം അമർത്തുക.",
         "enter": "ദയവായി നിങ്ങളുടെ ലോൺ അപേക്ഷാ നമ്പറിന്റെ അവസാന നാല് അക്കങ്ങൾ നൽകുക.",
         "cleared": "മായ്ച്ചു. ദയവായി അവസാന നാല് അക്കങ്ങൾ വീണ്ടും നൽകുക.",
         "nudge": "ദയവായി നിങ്ങളുടെ ഫോൺ കീപാഡ് ഉപയോഗിക്കുക.",
@@ -141,7 +141,7 @@ TEXT: dict[str, dict[str, str]] = {
     "mr-IN": {
         "greeting": "सरलमध्ये आपले स्वागत आहे. भाषा बदलण्यासाठी नऊ दाबा.",
         "option": "मराठीसाठी सात दाबा.",
-        "continue": "मराठीत पुढे सुरू ठेवण्यासाठी हॅश दाबा.",
+        "continue": "मराठीत पुढे सुरू ठेवण्यासाठी शून्य दाबा.",
         "enter": "कृपया आपल्या कर्ज अर्ज क्रमांकाचे शेवटचे चार अंक टाका.",
         "cleared": "पुसले. कृपया शेवटचे चार अंक पुन्हा टाका.",
         "nudge": "कृपया आपल्या फोनचा कीपॅड वापरा.",
@@ -160,7 +160,7 @@ TEXT: dict[str, dict[str, str]] = {
     "bn-IN": {
         "greeting": "সরলে আপনাকে স্বাগত। ভাষা বদলাতে নয় টিপুন।",
         "option": "বাংলার জন্য আট টিপুন।",
-        "continue": "বাংলায় চালিয়ে যেতে হ্যাশ টিপুন।",
+        "continue": "বাংলায় চালিয়ে যেতে শূন্য টিপুন।",
         "enter": "অনুগ্রহ করে আপনার লোন আবেদন নম্বরের শেষ চারটি সংখ্যা দিন।",
         "cleared": "মুছে ফেলা হয়েছে। অনুগ্রহ করে শেষ চারটি সংখ্যা আবার দিন।",
         "nudge": "অনুগ্রহ করে আপনার ফোনের কিপ্যাড ব্যবহার করুন।",
@@ -179,7 +179,7 @@ TEXT: dict[str, dict[str, str]] = {
     "gu-IN": {
         "greeting": "સરલમાં આપનું સ્વાગત છે. ભાષા બદલવા માટે નવ દબાવો.",
         "option": "ગુજરાતી માટે નવ દબાવો.",
-        "continue": "ગુજરાતીમાં ચાલુ રાખવા માટે હેશ દબાવો.",
+        "continue": "ગુજરાતીમાં ચાલુ રાખવા માટે શૂન્ય દબાવો.",
         "enter": "કૃપા કરીને તમારા લોન અરજી નંબરના છેલ્લા ચાર અંક દાખલ કરો.",
         "cleared": "ભૂંસી નાખ્યું. કૃપા કરીને છેલ્લા ચાર અંક ફરીથી દાખલ કરો.",
         "nudge": "કૃપા કરીને તમારા ફોનના કીપેડનો ઉપયોગ કરો.",
@@ -197,8 +197,8 @@ TEXT: dict[str, dict[str, str]] = {
     },
     "pa-IN": {
         "greeting": "ਸਰਲ ਵਿੱਚ ਤੁਹਾਡਾ ਸੁਆਗਤ ਹੈ। ਭਾਸ਼ਾ ਬਦਲਣ ਲਈ ਨੌਂ ਦਬਾਓ।",
-        "option": "ਪੰਜਾਬੀ ਲਈ ਸਿਫ਼ਰ ਦਬਾਓ।",
-        "continue": "ਪੰਜਾਬੀ ਵਿੱਚ ਜਾਰੀ ਰੱਖਣ ਲਈ ਹੈਸ਼ ਦਬਾਓ।",
+        "option": "ਪੰਜਾਬੀ ਲਈ ਸਟਾਰ ਦਬਾਓ।",
+        "continue": "ਪੰਜਾਬੀ ਵਿੱਚ ਜਾਰੀ ਰੱਖਣ ਲਈ ਸਿਫ਼ਰ ਦਬਾਓ।",
         "enter": "ਕਿਰਪਾ ਕਰਕੇ ਆਪਣੇ ਲੋਨ ਅਰਜ਼ੀ ਨੰਬਰ ਦੇ ਆਖਰੀ ਚਾਰ ਅੰਕ ਦਰਜ ਕਰੋ।",
         "cleared": "ਮਿਟਾ ਦਿੱਤਾ। ਕਿਰਪਾ ਕਰਕੇ ਆਖਰੀ ਚਾਰ ਅੰਕ ਦੁਬਾਰਾ ਦਰਜ ਕਰੋ।",
         "nudge": "ਕਿਰਪਾ ਕਰਕੇ ਆਪਣੇ ਫ਼ੋਨ ਦਾ ਕੀਪੈਡ ਵਰਤੋ।",
@@ -249,7 +249,7 @@ def live_greeting(language: str, first_name: str | None) -> str:
 
 
 def menu_text(language: str = DEFAULT_LANGUAGE) -> str:
-    """What the language menu says: every option in key order (each in its own language), then the "press hash to
+    """What the language menu says: every option in key order (each in its own language), then the "press zero to
     continue" line in the call's current `language`."""
     return " ".join([*(TEXT[code]["option"] for code in LANGUAGES), text(language, "continue")])
 
