@@ -388,13 +388,16 @@ GNANI_API_KEY=... python scripts/voice/gnani_roundtrip.py --out /tmp/gnani_rt   
 forms are one key) is matched to a synthetic applicant whose record names the call language. The caller hears a
 pre-recorded greeting in that language with no name or account data ("Welcome to Saral. To change language, press
 nine."); 9 opens a menu of ten languages, each option said in its own language (1 English, 2 Hindi, 3 Telugu, 4 Tamil,
-5 Kannada, 6 Malayalam, 7 Marathi, 8 Bengali, 9 Gujarati, 0 Punjabi). Then one factor: the last 4 digits of the loan
+5 Kannada, 6 Malayalam, 7 Marathi, 8 Bengali, 9 Gujarati, 0 Punjabi), ending with "To continue in <current
+language>, press hash." The menu plays once; # (or no key for 6 s) keeps the current language, and # during the
+greeting skips straight on. Then one factor: the last 4 digits of the loan
 application number, checked against a salted HMAC-SHA256 hash, with no read-back ("That didn't match. Please try
 again."). Three mismatches lock the call. Everything before verification is **pre-recorded** Timbre v3.0 / Tarika
 audio in all ten languages (`apps/voice/prompts/<locale>/`), never interruptible; speech before verification is
 ignored apart from one keypad nudge per prompt, and a refusal (unknown number, locked) is said once before the call
 ends. After "Thank you, you're verified." the agent greets the caller by first name and continues in the chosen
-language (Prisma STT "<language>,en-IN", Timbre TTS and the graph's answers). Digits never reach the LLM, transcripts
+language (Prisma STT with that one locale, since streaming takes exactly one `language_code`; Timbre TTS and the
+graph's answers). Digits never reach the LLM, transcripts
 or logs. DTMF must reach LiveKit as RFC 4733 `telephone-event` from the SIP trunk. Demo-grade authentication on
 synthetic data only (4 digits). Details:
 [docs/architecture/livekit-integration.md](docs/architecture/livekit-integration.md#phone-callers-keypad-verification-sip--dtmf).

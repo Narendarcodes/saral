@@ -24,14 +24,16 @@ Phone calls (LiveKit SIP participant, or the web phone), call flow v2 "language 
 the caller ID (`sip.phoneNumber`) is matched to a hashed synthetic applicant directory (CALLER_DIRECTORY,
 CALLER_VERIFY_HMAC_KEY) whose record names the caller's language (ten Gnani codes, default en-IN). The caller hears a
 greeting in that language with no name or account data ("Welcome to Saral. To change language, press nine."), may
-press 9 for a ten-language menu (each option in its own language), then keys the last 4 digits of the loan
+press 9 for a ten-language menu (each option in its own language, then "to continue in <language>, press hash"; it
+plays once and keeps the language after 6 s without a key), or # to go straight on in the current language, then keys the last 4 digits of the loan
 application number (`verify_caller`, caller_verification.py) before any turn reaches the advisory server. No
 read-back; three mismatches lock the call. Digits arrive as `sip_dtmf_received` room events only, and neither the chat
 context nor any log ever holds a digit. Everything the caller hears before verification succeeds is PRE-RECORDED
 (auth_prompts.py, apps/voice/prompts/<locale>/, rendered once by scripts/voice/render_auth_prompts.py with Timbre v3.0 /
 Tarika). The auth phase never calls the advisory graph (its LLM) or live TTS; a missing or stale clip falls back to
 live TTS of the same fixed text, in its language, with a warning. After the pre-recorded "Thank you, you're verified."
-the session switches Prisma STT to "<language>,en-IN" (en-IN alone for English) and Timbre TTS to the language, greets
+the session switches Prisma STT to that one language (Prisma streaming takes exactly one locale; format=codemix keeps
+English loan words) and Timbre TTS to the language, greets
 the caller by first name (learnt only now, from the phone assertion) and asks the graph to answer in that language.
 
 Tone (tone_wiring.py -> tone_hook.py) starts only after verification (phone: keypad verified; browser: the Voice
@@ -73,7 +75,7 @@ import call_routing  # noqa: E402  (which door a participant came in by; no Live
 import auth_prompts as ap  # noqa: E402  (pre-recorded auth-phase clips; no LiveKit imports)
 import prompt_texts as pt  # noqa: E402  (fixed call lines in ten languages; no LiveKit imports)
 from tone_wiring import ToneSession, make_hook  # noqa: E402  (tone engine, used only after verification)
-from gnani_speech import build_stt, build_stt_for_language, build_tts  # noqa: E402  (Gnani Prisma STT + Timbre TTS)
+from gnani_speech import build_stt, build_stt_for_language, build_tts, ssl_context  # noqa: E402  (Gnani speech)
 
 CFG = VoiceSettings.from_env()
 AGENT_HTTP, TURN_LOG = CFG.agent_http, CFG.turn_log
@@ -230,7 +232,8 @@ class AdvisorAgent(Agent):
         self.conv = f"voice-{auth.session_id}"
         self._http: aiohttp.ClientSession | None = None
         self._verify_task: asyncio.Task | None = None
-        self.prompts = prompts or ap.PromptStore(locale=locale)
+        self.prompts = prompts or shared_prompts()
+        self._prompt_handle = None  # the auth-phase prompt playing now (so a keypad # can cut it short)
         self._gate_pending = False
         self._tone_default = tone is None
         self.tone = tone or ToneSession(make_hook(locale))
@@ -249,7 +252,7 @@ class AdvisorAgent(Agent):
 
     def apply_language(self, language: str, *, stt: bool = False) -> None:
         """Timbre TTS speaks `language` from the next synthesis (the live-TTS fallback before verification, every
-        reply after it). With `stt`, Prisma STT is swapped for one listening for "<language>,en-IN"."""
+        reply after it). With `stt`, Prisma STT is swapped for one listening for `language` (one locale)."""
         upd = getattr(self.session.tts, "update_options", None)
         if callable(upd):
             upd(language=language)
@@ -416,10 +419,24 @@ class AdvisorAgent(Agent):
         """A fixed auth-phase line by key, in the call's current language: played from its pre-recorded clip (live
         TTS of the same text only when the clip is missing), kept out of the chat context."""
         lang = self.language
-        shown = pt.menu_text() if key == cv.LANGUAGE_MENU else pt.text(lang, key)
-        # Never interruptible: a "hello" over a refusal or a prompt must not cut it off and make it restart.
-        await self.session.say(shown, audio=self._prompt_frames(self.prompts.plan_key(key, lang)),
-                               add_to_chat_ctx=False, allow_interruptions=False)
+        shown = pt.menu_text(lang) if key == cv.LANGUAGE_MENU else pt.text(lang, key)
+        # Not interruptible by speech: a "hello" over a refusal or a prompt must not cut it off and make it restart.
+        # Only the keypad can stop it (stop_prompt, for # / 9 / a menu choice).
+        handle = self.session.say(shown, audio=self._prompt_frames(self.prompts.plan_key(key, lang)),
+                                  add_to_chat_ctx=False, allow_interruptions=False)
+        self._prompt_handle = handle
+        try:
+            await handle
+        finally:
+            if self._prompt_handle is handle:
+                self._prompt_handle = None
+
+    def stop_prompt(self) -> None:
+        """Cut the auth-phase prompt playing now (a keypad # or menu choice decided it). Keypad flow only."""
+        handle = self._prompt_handle
+        done, interrupt = getattr(handle, "done", None), getattr(handle, "interrupt", None)
+        if callable(interrupt) and not (callable(done) and done()):
+            interrupt(force=True)
 
     async def llm_node(self, chat_ctx: llm.ChatContext, tools, model_settings):
         gate = self._gate_reply()
@@ -550,8 +567,36 @@ def _end_tone(agent: AdvisorAgent):
     return _end
 
 
+_PROMPTS: ap.PromptStore | None = None
+
+
+def shared_prompts() -> ap.PromptStore:
+    """The process's one prompt store: every clip already resampled to the LiveKit output rate (24 kHz)."""
+    global _PROMPTS
+    if _PROMPTS is None:
+        _PROMPTS = ap.PromptStore(output_rate=ap.OUTPUT_RATE)
+    return _PROMPTS
+
+
+PREWARM_IMPORTS = ("numpy", "numpy.fft", "websockets", "websockets.asyncio.client", "websockets.asyncio.messages",
+                   "livekit.agents.llm.async_toolset")
+
+
 def prewarm(proc: JobProcess):
+    """Everything slow that a call would otherwise do on its event loop, done once per worker process: Silero VAD,
+    the Gnani TLS context (load_default_certs blocked the loop ~0.5 s per STT socket on Windows), all prompt clips of
+    the ten locales read and resampled to 24 kHz, and the lazy imports seen stalling the first call."""
+    import importlib
     proc.userdata["vad"] = silero.VAD.load(min_silence_duration=CFG.vad_min_silence_s)
+    ssl_context()
+    proc.userdata["prompts"] = store = shared_prompts()
+    loaded = store.preload()
+    for name in PREWARM_IMPORTS:
+        try:
+            importlib.import_module(name)
+        except Exception:  # an optional module missing in this livekit version is fine
+            pass
+    log.info("prewarm: %d prompt clips loaded at %d Hz", loaded, ap.OUTPUT_RATE)
 
 
 def participant_route(participant, room_name: str) -> str:
@@ -644,7 +689,7 @@ async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant, 
     tts_engine.update_options(language=language)
     session = AgentSession(vad=ctx.proc.userdata["vad"], stt=stt_engine, tts=tts_engine, llm=GraphLLM(),
                            min_endpointing_delay=CFG.min_endpointing_s, **phone_session_kwargs())
-    agent = AdvisorAgent(gate, locale, ctx.room, turn, phone=phone)
+    agent = AdvisorAgent(gate, locale, ctx.room, turn, phone=phone, prompts=ctx.proc.userdata.get("prompts"))
 
     async def hang_up():
         try:
@@ -655,9 +700,11 @@ async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant, 
     on_language = lambda code: agent.apply_language(code)  # noqa: E731  (fallback TTS follows the menu choice)
     if record is not None:
         phone.verifier = phone.keypad = gate.verifier = cv.KeypadVerifier(record, key, speak=agent._say_key,
-                                                                          on_language=on_language)
+                                                                          on_language=on_language,
+                                                                          interrupt=agent.stop_prompt)
     else:
-        phone.keypad = cv.KeypadCall(speak=agent._say_key, language=pt.DEFAULT_LANGUAGE, on_language=on_language)
+        phone.keypad = cv.KeypadCall(speak=agent._say_key, language=pt.DEFAULT_LANGUAGE, on_language=on_language,
+                                     interrupt=agent.stop_prompt)
     # Keypad digits come only from LiveKit SIP DTMF room events, never from the speech path.
     ctx.room.on("sip_dtmf_received", cv.dtmf_handler(participant.identity, phone.keypad))
     if web_phone:

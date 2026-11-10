@@ -168,9 +168,11 @@ phone path instead (`apps/voice/caller_verification.py`, lines in `apps/voice/pr
    nine." An unknown caller (or no directory) hears it in en-IN.
 3. **Language menu (press 9).** A 9 keyed during the greeting or within 3 s after it opens the menu: each option is said
    in its own language, in key order: 1 English (en-IN), 2 Hindi (hi-IN), 3 Telugu (te-IN), 4 Tamil (ta-IN), 5 Kannada
-   (kn-IN), 6 Malayalam (ml-IN), 7 Marathi (mr-IN), 8 Bengali (bn-IN), 9 Gujarati (gu-IN), 0 Punjabi (pa-IN). An invalid
-   key or no key in 8 s replays it once, then the call continues in the current language. Once the enter-digits prompt
-   has started, 9 is an ordinary digit (a last-4 can start with 9).
+   (kn-IN), 6 Malayalam (ml-IN), 7 Marathi (mr-IN), 8 Bengali (bn-IN), 9 Gujarati (gu-IN), 0 Punjabi (pa-IN), then,
+   in the call's current language, "To continue in <language>, press hash." The menu plays ONCE; a choice or # cuts it
+   short; with no key 6 s after it ends, the call keeps its current language and goes on (no replay; `*` is ignored).
+   `#` during the greeting or its 3 s window also goes straight on in the current language. Once the enter-digits
+   prompt has started, 9 is an ordinary digit (a last-4 can start with 9).
 4. **`verify_caller` (keypad only, one factor).** "Please enter the last four digits of your loan application number."
    No factor menu, no bank-account path and no read-back: a wrong entry hears "That didn't match. Please try again."
    Keys come from the room event `sip_dtmf_received` (`rtc.SipDTMF`: `digit`, `code`, `participant`; only the caller's
@@ -185,8 +187,9 @@ phone path instead (`apps/voice/caller_verification.py`, lines in `apps/voice/pr
    restart. A refusal (unknown caller, unavailable, locked) is spoken once, then the worker deletes the room (hang-up).
    The LLM side only ever sees an outcome word; digits are never logged (`****`).
 7. **Verified.** The pre-recorded "Thank you, you're verified." plays in the chosen language. Then the session fixes
-   that language: Prisma STT is swapped (`Agent.update_options(stt=...)`) for one with `language_code`
-   "<language>,en-IN" (en-IN alone for English), Timbre TTS speaks the language, and every turn sends
+   that language: Prisma STT is swapped (`Agent.update_options(stt=...)`) for one with `language_code` set to that
+   ONE locale (e.g. `te-IN`). Prisma streaming refuses a comma list ("exactly one locale is required") and does not
+   accept `multi_lang_codes`; `format=codemix` keeps English loan words in Latin script. Timbre TTS speaks the language, and every turn sends
    `reply_language` to the advisory server, whose LLM is told to write in it (`prompts.answer_language`; the graph's
    fixed templates exist in en / hi / te, so the other seven languages keep English templates). The live agent then
    greets the caller by first name (live TTS); the name comes from the phone assertion (`first_name`), which is only
@@ -198,10 +201,12 @@ phone path instead (`apps/voice/caller_verification.py`, lines in `apps/voice/pr
 TTS on the line does not cut the agent off after verification.
 
 **Pre-recorded auth phase.** Every line a phone caller hears before verification succeeds (greeting, language-menu
-option, enter, cleared, nudge, no-match, verified, locked, timeout, unknown caller, unavailable, needs-verification) is
-a clip rendered once with Timbre v3.0, voice Tarika, 16 kHz mono, in each of the ten languages (12 clips x 10), and
+option, menu "press hash to continue", enter, cleared, nudge, no-match, verified, locked, timeout, unknown caller, unavailable, needs-verification) is
+a clip rendered once with Timbre v3.0, voice Tarika, 16 kHz mono, in each of the ten languages (13 clips x 10), and
 committed under `apps/voice/prompts/<locale>/` with a `manifest.json` (text, sha256 of the text, duration). Numbers read
-aloud are written as words. `apps/voice/auth_prompts.py` looks a clip up by key (or exact text) per language; the
+aloud are written as words. The worker loads every clip of all ten languages at prewarm and resamples it once to
+LiveKit's 24 kHz output rate, so a call never reads a WAV or resamples on its event loop. `apps/voice/auth_prompts.py`
+looks a clip up by key (or exact text) per language; the
 worker plays it as LiveKit audio frames and never calls the advisory graph or live TTS in this phase. A clip that is
 missing, unreadable or rendered from different text (hash mismatch) is spoken with live TTS of the same fixed text in
 its own language and logs a warning (never a digit). Re-render after changing any line (Gnani allows one active TTS

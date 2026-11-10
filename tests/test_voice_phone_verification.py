@@ -143,7 +143,7 @@ def user_ctx(text):
 
 def keypad_script(cv, pt, holder, script):
     """on_say hook: when a prompt that waits for keys finishes, key the next scripted presses (None = nothing)."""
-    waits = {pt.text(code, k) for code in pt.LANGUAGES for k in ("greeting", "enter", "no_match")} | {pt.menu_text()}
+    waits = {pt.text(code, k) for code in pt.LANGUAGES for k in ("greeting", "enter", "no_match")} | {pt.menu_text(c) for c in pt.LANGUAGES}
 
     def on_say(text):
         if script and text in waits:
@@ -239,7 +239,7 @@ def test_unknown_caller_can_switch_language_before_the_refusal(worker, cv, pt):
     holder["h"] = cv.dtmf_handler("sip_caller", agent.phone.keypad)
     asyncio.run(agent.verify_caller())
     assert fake.said[-1]["text"] == pt.text("te-IN", "unknown_caller")
-    assert fake.said[1]["text"] == pt.menu_text()
+    assert fake.said[1]["text"] == pt.menu_text("en-IN")  # the menu ends with "continue in English, press hash"
 
 
 # ----------------------------------------------------------------------------------------------- gate
@@ -316,7 +316,7 @@ def test_full_flow_language_menu_then_digits_then_verified_in_the_chosen_languag
     assert asyncio.run(agent.verify_caller()) == cv.VERIFIED and agent.auth.verified and hangups == []
     texts = [s["text"] for s in fake.said]
     i_verified = texts.index(pt.text("ta-IN", "verified"))
-    assert texts[:i_verified + 1] == [pt.text("te-IN", "greeting"), pt.menu_text(), pt.text("ta-IN", "enter"),
+    assert texts[:i_verified + 1] == [pt.text("te-IN", "greeting"), pt.menu_text("te-IN"), pt.text("ta-IN", "enter"),
                                       pt.text("ta-IN", "verified")]
     pre = fake.said[:i_verified + 1]
     assert all(s["add_to_chat_ctx"] is False and s["allow_interruptions"] is False for s in pre)
@@ -332,7 +332,7 @@ def test_full_flow_language_menu_then_digits_then_verified_in_the_chosen_languag
         assert fake.tts.languages[-1] == "ta-IN"
     # the chosen language now drives STT, TTS and the graph
     assert agent.call_language == "ta-IN" and fake.tts.language == "ta-IN"
-    assert agent.stt.language_code == "ta-IN,en-IN" and agent.locale == "en"
+    assert agent.stt.language_code == "ta-IN" and agent.locale == "en"
     assert agent._gate_reply() is None
     assert asyncio.run(agent.auth.fresh())["assertion"] == "x"
 
@@ -350,7 +350,7 @@ def test_english_caller_gets_english_stt_and_hindi_maps_to_the_graph_locale(work
     i = texts.index(pt.text("en-IN", "verified"))
     assert texts[i + 1] == pt.live_greeting("en-IN", None)  # no name available: greeting without one
     agent.apply_language("hi-IN", stt=True)
-    assert agent.stt.language_code == "hi-IN,en-IN" and agent.locale == "hi"
+    assert agent.stt.language_code == "hi-IN" and agent.locale == "hi"
 
 
 def test_verified_turn_sends_the_reply_language_to_the_graph(worker, cv, pt, directory_env, monkeypatch):
@@ -548,3 +548,98 @@ def test_verified_turn_sets_speed_and_speaks_only_the_budget(worker, cv, monkeyp
     assert out == kept and deferred and agent.turn.info["tone_deferred"] == len(deferred)
     assert speeds and all(0.9 <= s <= 1.05 for s in speeds)
     assert agent.turn.info["tone_tier"] in T.TIERS and published == ["advisor"]
+
+
+# ------------------------------------------------------------------- 2026-11-10 call audit: audio + continue key
+def test_prompt_frames_leave_at_24k_with_no_resampling_at_play_time(worker, cv, monkeypatch):
+    import auth_prompts as ap
+    from livekit import rtc
+    store = ap.PromptStore(output_rate=ap.OUTPUT_RATE)
+    store.preload()  # what prewarm does
+    agent, _, _, _ = make_agent(worker, cv, reason=cv.UNKNOWN_CALLER, prompts=store)
+    made = []
+    real = rtc.AudioResampler
+
+    class Spy(real):
+        def __init__(self, *a, **kw):
+            made.append(kw)
+            super().__init__(*a, **kw)
+    monkeypatch.setattr(rtc, "AudioResampler", Spy)
+    frames = asyncio.run(drain(agent._prompt_frames(store.plan_key(ap.LANGUAGE_MENU, "te-IN"))))
+    assert frames and {f.sample_rate for f in frames} == {24000} and made == []
+    sizes = [f.samples_per_channel for f in frames]
+    assert max(sizes) == 480 and sizes.count(480) >= len(sizes) - 22  # 20 ms at 24 kHz (a short tail per part)
+
+
+def test_prewarm_loads_every_clip_once_at_24k_and_the_tls_context(worker, monkeypatch):
+    import auth_prompts as ap
+    import gnani_speech
+    monkeypatch.setattr(worker, "_PROMPTS", None)
+    monkeypatch.setattr(worker.silero.VAD, "load", staticmethod(lambda **kw: "vad"))
+    gnani_speech.ssl_context.cache_clear()
+    proc = SimpleNamespace(userdata={})
+    worker.prewarm(proc)
+    store = proc.userdata["prompts"]
+    assert store is worker.shared_prompts() and store.output_rate == 24000
+    assert len(store._cache) == len(ap.LOCALES) * len(ap.TEXT["en-IN"]) and all(store._cache.values())
+    assert {rate for _, rate in store._cache.values()} == {24000}
+    assert gnani_speech.ssl_context.cache_info().currsize == 1
+    import sys as _sys
+    assert "numpy" in _sys.modules and "websockets.asyncio.messages" in _sys.modules
+
+
+def test_hash_key_through_the_worker_cuts_the_greeting_and_moves_on(worker, cv, pt, directory_env):
+    """The keypad # reaches stop_prompt, which interrupts the playing SpeechHandle (force: prompts are not
+    speech-interruptible)."""
+    rec, _, _ = worker.phone_lookup(PHONE, directory_env)
+
+    class Handle:
+        def __init__(self, coro):
+            self._task, self.interrupted_with = asyncio.ensure_future(coro), None
+
+        def done(self):
+            return self._task.done()
+
+        def interrupt(self, *, force=False):
+            self.interrupted_with = force
+            self._task.cancel()
+
+        def __await__(self):
+            async def wait():
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+            return wait().__await__()
+
+    handles = []
+
+    async def go():
+        agent, fake, _, _ = make_agent(worker, cv, rec)
+        say = fake.say
+
+        def slow_say(text, **kw):
+            async def run():
+                if text == pt.text("te-IN", "greeting"):
+                    agent.phone.verifier.press("#")
+                    await asyncio.sleep(5)  # only an interrupt ends it early
+                elif text == pt.text("te-IN", "enter"):
+                    for k in APP4:
+                        agent.phone.verifier.press(k)
+                await say(text, **kw)
+            h = Handle(run())
+            handles.append((text, h))
+            return h
+        fake.say = slow_say
+        agent.phone.verifier._interrupt = agent.stop_prompt
+        agent.phone.verifier.window_s = 5
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        out = await agent.verify_caller()
+        return out, loop.time() - t0
+    out, took = asyncio.run(go())
+    assert out == cv.VERIFIED and took < 2.0
+    greeting = [h for t, h in handles if t == pt.text("te-IN", "greeting")][0]
+    assert greeting.interrupted_with is True
+    assert [t for t, _ in handles][:3] == [pt.text("te-IN", "greeting"), pt.text("te-IN", "enter"),
+                                           pt.text("te-IN", "verified")]

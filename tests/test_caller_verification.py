@@ -174,20 +174,170 @@ def test_menu_mapping_is_the_owner_design():
                                   "6": "ml-IN", "7": "mr-IN", "8": "bn-IN", "9": "gu-IN", "0": "pa-IN"}
 
 
-def test_menu_invalid_key_replays_once_then_keeps_the_current_language():
-    c = Caller(["9", "*", "#", APP4])
+def test_menu_star_is_ignored_and_no_key_keeps_the_language_without_replay():
+    c = Caller(["9", "*", APP4])
     assert run(c) == cv.VERIFIED and c.v.language == "te-IN" and c.changes == []
-    assert c.spoken.count(cv.LANGUAGE_MENU) == 2 and c.spoken[3] == "enter"
+    assert c.spoken == ["greeting", cv.LANGUAGE_MENU, "enter", "verified"]
 
 
-def test_menu_timeout_replays_once_then_continues():
-    c = Caller(["9", None, None, APP4])
-    assert run(c) == cv.VERIFIED and c.spoken.count(cv.LANGUAGE_MENU) == 2 and c.v.language == "te-IN"
+def test_menu_no_key_keeps_the_current_language_without_replay():
+    c = Caller(["9", None, APP4])
+    assert run(c) == cv.VERIFIED and c.v.language == "te-IN" and c.changes == []
+    assert c.spoken.count(cv.LANGUAGE_MENU) == 1 and c.spoken == ["greeting", cv.LANGUAGE_MENU, "enter", "verified"]
 
 
-def test_menu_second_try_can_still_choose():
-    c = Caller(["9", "x", "2", APP4])
-    assert run(c) == cv.VERIFIED and c.v.language == "hi-IN"
+def test_menu_hash_keeps_the_current_language():
+    c = Caller(["9", "#", APP4])
+    assert run(c) == cv.VERIFIED and c.v.language == "te-IN" and c.changes == []
+    assert c.spoken == ["greeting", cv.LANGUAGE_MENU, "enter", "verified"]
+
+
+def test_menu_star_then_choice_within_the_wait_still_switches():
+    c = Caller(["9", "*2", APP4])
+    assert run(c) == cv.VERIFIED and c.v.language == "hi-IN" and c.spoken.count(cv.LANGUAGE_MENU) == 1
+
+
+def test_menu_waits_menu_wait_s_after_playing_then_moves_on():
+    async def go():
+        spoken = []
+
+        async def speak(key):
+            spoken.append(key)
+            if key == "greeting":
+                call.press("9")
+        call = cv.KeypadCall(speak=speak, window_s=0.05, menu_wait_s=0.3)
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        await call.run_unverifiable(cv.UNKNOWN_CALLER)
+        return spoken, loop.time() - t0
+    spoken, took = asyncio.run(go())
+    assert spoken == ["greeting", cv.LANGUAGE_MENU, "unknown_caller"] and 0.3 <= took < 0.6
+    assert cv.MENU_WAIT_S == 6.0
+
+
+def test_hash_during_the_greeting_goes_straight_on_and_cuts_the_greeting():
+    """# while the greeting plays: the worker's interrupt is called and the enter prompt follows with no window."""
+    async def go():
+        spoken, cut = [], []
+        playing = asyncio.Event()
+
+        async def speak(key):
+            spoken.append(key)
+            if key == "greeting":
+                call.press("#")
+                try:  # a long greeting that only ends when interrupted
+                    await asyncio.wait_for(playing.wait(), 5)
+                except asyncio.TimeoutError:
+                    pass
+            elif key == "enter":
+                for k in APP4:
+                    call.press(k)
+
+        def interrupt():
+            cut.append(spoken[-1])
+            playing.set()
+        call = cv.KeypadVerifier(directory().lookup(PHONE), KEY, speak=speak, interrupt=interrupt, window_s=5,
+                                 menu_wait_s=5, nudge_s=1, give_up_s=2)
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        out = await call.run()
+        return out, spoken, cut, loop.time() - t0, call
+    out, spoken, cut, took, call = asyncio.run(go())
+    assert out == cv.VERIFIED and spoken == ["greeting", "enter", "verified"] and cut == ["greeting"]
+    assert took < 1.0 and call.language == "te-IN"  # no 5 s window, no menu
+
+
+def test_hash_in_the_greeting_window_goes_straight_on():
+    async def go():
+        spoken = []
+
+        async def speak(key):
+            spoken.append(key)
+            if key == "enter":
+                for k in APP4:
+                    call.press(k)
+        call = cv.KeypadVerifier(directory().lookup(PHONE), KEY, speak=speak, window_s=5, menu_wait_s=5,
+                                 nudge_s=1, give_up_s=2)
+        task = asyncio.ensure_future(call.run())
+        await asyncio.sleep(0.05)
+        call.press("#")
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        out = await task
+        return out, spoken, loop.time() - t0
+    out, spoken, took = asyncio.run(go())
+    assert out == cv.VERIFIED and spoken == ["greeting", "enter", "verified"] and took < 1.0
+
+
+def test_hash_during_the_menu_cuts_it_and_keeps_the_language():
+    async def go():
+        spoken, cut = [], []
+        playing = asyncio.Event()
+
+        async def speak(key):
+            spoken.append(key)
+            if key == "greeting":
+                call.press("9")
+            elif key == cv.LANGUAGE_MENU:
+                call.press("#")
+                try:
+                    await asyncio.wait_for(playing.wait(), 5)
+                except asyncio.TimeoutError:
+                    pass
+            elif key == "enter":
+                for k in APP4:
+                    call.press(k)
+
+        def interrupt():
+            cut.append(spoken[-1])
+            playing.set()
+        call = cv.KeypadVerifier(directory().lookup(PHONE), KEY, speak=speak, interrupt=interrupt, window_s=5,
+                                 menu_wait_s=5, nudge_s=1, give_up_s=2)
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        out = await call.run()
+        return out, spoken, cut, loop.time() - t0, call
+    out, spoken, cut, took, call = asyncio.run(go())
+    assert out == cv.VERIFIED and cut == [cv.LANGUAGE_MENU] and took < 1.0
+    assert spoken == ["greeting", cv.LANGUAGE_MENU, "enter", "verified"] and call.language == "te-IN"
+
+
+def test_a_menu_choice_during_playback_cuts_the_menu_and_switches():
+    async def go():
+        cut = []
+        playing = asyncio.Event()
+
+        async def speak(key):
+            if key == "greeting":
+                call.press("9")
+            elif key == cv.LANGUAGE_MENU:
+                call.press("3")
+                try:
+                    await asyncio.wait_for(playing.wait(), 5)
+                except asyncio.TimeoutError:
+                    pass
+
+        def interrupt():
+            cut.append(1)
+            playing.set()
+        call = cv.KeypadCall(speak=speak, language="en-IN", interrupt=interrupt, window_s=5, menu_wait_s=5)
+        await call.run_unverifiable(cv.UNKNOWN_CALLER)
+        return cut, call.language
+    assert asyncio.run(go()) == ([1], "te-IN")
+
+
+def test_other_keys_never_cut_the_greeting():
+    async def go():
+        cut = []
+
+        async def speak(key):
+            if key == "greeting":
+                call.press("1")
+                call.press("*")
+        call = cv.KeypadCall(speak=speak, interrupt=lambda: cut.append(1), window_s=0.05, menu_wait_s=0.05)
+        await call.run_unverifiable(cv.UNKNOWN_CALLER)
+        return cut
+    assert asyncio.run(go()) == []
 
 
 def test_9_after_the_enter_prompt_is_an_ordinary_digit():

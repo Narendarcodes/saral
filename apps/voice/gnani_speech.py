@@ -4,8 +4,14 @@ LiveKit plugin `livekit-plugins-gnani` (pinned 1.8.11, installed as `livekit-age
 The plugin covers transport, retries and audio framing. Two gaps in 1.8.11 are closed here, and only here:
 
 * STT: the plugin never sends the `model` header, so the server falls back to Prisma v2.5. `PrismaSTT` streams with
-  `model=prisma-v3.0` plus `language_code` (one code, a list of up to four, or `indic-auto`) and `format` (e.g.
-  `codemix`), using the documented header names (docs.gnani.ai/api/STT/stt-websocket).
+  `model=prisma-v3.0` plus `language_code` and `format` (e.g. `codemix`), using the documented header names
+  (docs.gnani.ai/api/STT/stt-websocket). `language_code` is ALWAYS exactly one locale (or `indic-auto`): the live
+  streaming server refuses a comma list ("Invalid language_code: exactly one locale is required ... Received: te-IN,
+  en-IN"), and `multi_lang_codes` is not accepted on streaming (the server ignores the header; Gnani docs say so too).
+  `format=codemix` keeps English loan words ("EMI", "CIBIL") in Latin script inside a te-IN / hi-IN transcript.
+* TLS: every STT WebSocket uses ONE SSL context built once per process (certifi's bundle when installed). Without it
+  `websockets.connect` builds a fresh context per session, and on Windows `load_default_certs` blocks the event loop
+  ~0.5 s each time, which made the call audio stutter.
 * TTS: the plugin defaults to the retired `timbre-v2.0` with the voice `Pranav`, sends `language` for v2.5 only and
   never sends `speed`. `TimbreTTS` always takes an explicit model and voice, sends `language` for v2.5 and v3.0, and
   sends `speed` (0.85-1.15) so the tone engine can change it per turn with `set_speed()`.
@@ -19,7 +25,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import json
+import ssl
 from dataclasses import dataclass, fields, replace
 from typing import Any
 
@@ -37,6 +45,24 @@ from spoken_numbers import verbalise
 PLUGIN_VERSION = gnani.__version__
 
 
+@functools.lru_cache(maxsize=1)
+def ssl_context() -> ssl.SSLContext:
+    """The one client SSL context for Gnani sockets, built once per process (call it at worker prewarm so the build
+    never runs on a live call's event loop). certifi's CA bundle when installed, else the system store."""
+    try:
+        import certifi
+    except ImportError:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+def single_locale(language: str | None) -> str:
+    """The one locale sent as Prisma `language_code`: the first entry of a legacy comma list, `en-IN` for an empty
+    value; `indic-auto` and single codes pass through."""
+    first = str(language or "").split(",")[0].strip()
+    return first or "en-IN"
+
+
 # --------------------------------------------------------------------------------------------------------------- STT
 class PrismaSpeechStream(gnani_stt.SpeechStream):
     """The plugin's WebSocket stream, connecting with the Prisma v3.0 headers. Sending audio and reading transcripts
@@ -45,7 +71,7 @@ class PrismaSpeechStream(gnani_stt.SpeechStream):
     def __init__(self, *, stt: "PrismaSTT", opts: gnani_stt.GnaniSTTOptions, conn_options: APIConnectOptions,
                  model: str, language_code: str, fmt: str) -> None:
         super().__init__(stt=stt, opts=opts, conn_options=conn_options)
-        self._model, self._language_code, self._fmt = model, language_code, fmt
+        self._model, self._language_code, self._fmt = model, single_locale(language_code), fmt
 
     def connect_headers(self) -> dict[str, str]:
         return {"x-api-key-id": self._opts.api_key, "model": self._model, "language_code": self._language_code,
@@ -56,7 +82,8 @@ class PrismaSpeechStream(gnani_stt.SpeechStream):
 
         try:
             async with websockets.connect(self._build_ws_url(), additional_headers=self.connect_headers(),
-                                          ping_interval=20, ping_timeout=20, close_timeout=10) as ws:
+                                          ssl=ssl_context(), ping_interval=20, ping_timeout=20,
+                                          close_timeout=10) as ws:
                 hello = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
                 if hello.get("type") != "connected":
                     raise APIStatusError(message=f"Gnani STT refused the session: {hello.get('message', hello.get('type'))}",
@@ -83,13 +110,14 @@ class PrismaSpeechStream(gnani_stt.SpeechStream):
 
 
 class PrismaSTT(gnani.STT):
-    """Gnani Prisma streaming STT. `language` is one Gnani code, a comma list of up to four (a hint, not a lock), or
-    `indic-auto`; transcripts are labelled with the first listed language."""
+    """Gnani Prisma streaming STT. `language` is one Gnani code or `indic-auto` (a legacy comma list is cut to its
+    first locale, since streaming refuses lists); transcripts are labelled with that language (en-IN for indic-auto)."""
 
     def __init__(self, *, model: str, language: str, fmt: str, sample_rate: int = 16000) -> None:
-        first = "en-IN" if language == "indic-auto" else language.split(",")[0].strip()
-        super().__init__(language=first, sample_rate=sample_rate, use_streaming=True)
-        self._prisma_model, self._language_code, self._fmt = model, language, fmt
+        code = single_locale(language)
+        super().__init__(language="en-IN" if code == "indic-auto" else code, sample_rate=sample_rate,
+                         use_streaming=True)
+        self._prisma_model, self._language_code, self._fmt = model, code, fmt
 
     @property
     def model(self) -> str:
@@ -190,9 +218,9 @@ def build_stt(cfg: GnaniSpeechSettings, locale: str) -> PrismaSTT:
 
 
 def call_stt_language(language: str) -> str:
-    """Prisma language list for a phone call in `language` (a Gnani code): "<language>,en-IN" so English loan words
-    ("EMI", "CIBIL") are still heard, or "en-IN" alone for English."""
-    return "en-IN" if language in ("en-IN", "", None) else f"{language},en-IN"
+    """Prisma `language_code` for a phone call in `language` (a Gnani code): exactly that one locale (en-IN when
+    empty). Never a list: streaming refuses "te-IN,en-IN"; English loan words come through via format=codemix."""
+    return single_locale(language)
 
 
 def build_stt_for_language(cfg: GnaniSpeechSettings, language: str) -> PrismaSTT:
@@ -207,4 +235,5 @@ def build_tts(cfg: GnaniSpeechSettings, locale: str) -> TimbreTTS:
 
 
 __all__ = ["PLUGIN_VERSION", "PrismaSTT", "PrismaSpeechStream", "TimbreOptions", "TimbreTTS", "build_stt",
-           "build_stt_for_language", "build_tts", "call_stt_language", "timbre_payload"]
+           "build_stt_for_language", "build_tts", "call_stt_language", "single_locale", "ssl_context",
+           "timbre_payload"]

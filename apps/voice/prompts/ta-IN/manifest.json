@@ -11,6 +11,11 @@
       "sha256": "1af0fce86d8f2830b35ec1e634eb974242bb0f97ce3dc90084c7cf62d92edddb",
       "duration_s": 4.803
     },
+    "continue": {
+      "text": "தமிழில் தொடர ஹாஷை அழுத்தவும்.",
+      "sha256": "172c5d508c08e4db7a226edd3279cb30fb793049effce11f64c6b0100efc5cb7",
+      "duration_s": 2.4
+    },
     "enter": {
       "text": "உங்கள் கடன் விண்ணப்ப எண்ணின் கடைசி நான்கு இலக்கங்களை உள்ளிடவும்.",
       "sha256": "5faa7732f3e1a318e9ceb0ee8a18321a09ebd56e6225067018e2ce21a03f538a",
