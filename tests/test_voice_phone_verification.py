@@ -643,3 +643,10 @@ def test_zero_key_through_the_worker_cuts_the_greeting_and_moves_on(worker, cv, 
     assert greeting.interrupted_with is True
     assert [t for t, _ in handles][:3] == [pt.text("te-IN", "greeting"), pt.text("te-IN", "enter"),
                                            pt.text("te-IN", "verified")]
+
+
+def test_phone_turn_uses_the_thread_the_assertion_binds():
+    # Frappe's phone assertion binds thread "phone-<hash>"; the advisory server refuses any other conversation_id (403),
+    # which the caller heard as "couldn't reach the advisory service". The worker must adopt the asserted thread.
+    src = (Path(__file__).resolve().parents[1] / "apps" / "voice" / "agent_worker.py").read_text(encoding="utf-8")
+    assert 'assertion.get("thread")' in src and 'body["conversation_id"] = assertion["thread"]' in src

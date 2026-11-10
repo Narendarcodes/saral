@@ -478,6 +478,8 @@ class AdvisorAgent(Agent):
         async def events():
             """One fresh assertion, then NDJSON events from the advisory server (sentence streaming)."""
             assertion = await self.auth.fresh()
+            if assertion.get("thread"):  # phone assertions bind the call's thread (phone-<hash>); the server refuses any other
+                self.conv = body["conversation_id"] = assertion["thread"]
             self.locale = graph_locale(self.call_language) if self.call_language else (assertion.get("locale") or self.locale)
             headers = {"Authorization": f"Bearer {assertion['assertion']}"}
             if ctx is not None:  # W3C traceparent -> the server's advisor.turn becomes a child of this voice.turn
