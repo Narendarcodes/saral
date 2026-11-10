@@ -103,7 +103,7 @@ def test_language_menu_plays_each_option_in_its_own_language_then_continue_in_th
 
 
 @pytest.mark.parametrize("locale", ap.LOCALES)
-def test_continue_line_names_its_own_language_and_hash(locale):
+def test_continue_line_names_its_own_language_and_zero(locale):
     line = pt.TEXT[locale]["continue"]
     assert line and not any(ch.isdigit() for ch in line)
     assert pt.menu_text(locale).endswith(line)

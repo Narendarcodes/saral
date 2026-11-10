@@ -12,9 +12,9 @@
       "duration_s": 3.406
     },
     "continue": {
-      "text": "To continue in English, press hash.",
-      "sha256": "bc4cc7929da4c118f9240e3d5123deb712c11c56d3b8cf586d04610a8656169d",
-      "duration_s": 2.501
+      "text": "To continue in English, press zero.",
+      "sha256": "10f8ff6a3607039818be78d0f7933f36c06c52275fb3b4828f6c815b50708d8d",
+      "duration_s": 1.991
     },
     "enter": {
       "text": "Please enter the last four digits of your loan application number.",

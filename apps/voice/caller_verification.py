@@ -5,20 +5,21 @@ A phone call arrives through LiveKit SIP. The caller ID (the SIP from-number, pa
 (one of the ten Gnani codes, default en-IN). Then:
 
     greeting, in that language, with no name or account data:  "Welcome to Saral. To change language, press nine."
-    9 -> language menu, each option in its own language:        1 English ... 9 Gujarati, 0 Punjabi, then (in the
-                                                                 call's language) "To continue in <it>, press hash."
-    # (greeting or menu) -> continue in the current language at once
+    9 -> language menu, each option in its own language:        1 English ... 9 Gujarati, * Punjabi, then (in the
+                                                                 call's language) "To continue in <it>, press zero."
+    0 (greeting or menu) -> continue in the current language at once
     one factor only:                                            "Please enter the last four digits of your loan
                                                                  application number."
     wrong digits:                                               "That didn't match. Please try again."  (no read-back)
     three mismatches lock verification for the rest of the call.
 
 `9` changes language only while the greeting plays and for LANGUAGE_WINDOW_S after it; once the enter-digits prompt
-has started, 9 is an ordinary digit (a last-4 can start with 9). `#` during the greeting (or its window) or the menu
+has started, 9 is an ordinary digit (a last-4 can start with 9). `0` during the greeting (or its window) or the menu
 continues in the current language at once: it cuts the prompt that is playing (when the worker can interrupt it) and
-goes straight on. The menu plays ONCE, then waits MENU_WAIT_S for a key; with no choice the call keeps its current
-language and goes on (no replay). Keys that mean nothing at that point (`*`, other digits during the greeting) are
-dropped.
+goes straight on; once the enter-digits prompt has started, 0 is an ordinary digit too. In the menu `*` picks
+Punjabi. The menu plays ONCE, then waits MENU_WAIT_S for a key; with no choice the call keeps its current language
+and goes on (no replay). Keys that mean nothing at that point (`#` anywhere, `*` and other digits during the
+greeting) are dropped.
 
 An unknown number (or no directory) gets the same en-IN greeting with the press-9 option, then the unknown-caller line
 in whatever language the caller picked; it is never told anything about an account.
@@ -63,7 +64,7 @@ MAX_ATTEMPTS = 3
 NUDGE_S = 8.0
 GIVE_UP_S = 15.0
 LANGUAGE_KEY = "9"
-CONTINUE_KEY = "#"        # greeting / menu: carry on in the current language now
+CONTINUE_KEY = "0"        # greeting / menu: carry on in the current language now (a plain digit after that)
 LANGUAGE_WINDOW_S = 3.0   # after the greeting, how long a 9 still opens the language menu
 MENU_WAIT_S = 6.0         # after the menu has played (once), how long it waits for a key before keeping the language
 MASK = "*" * DIGITS
@@ -333,9 +334,9 @@ class KeypadCall:
                 speech.cancel()
 
     async def _language_menu(self) -> None:
-        """Ten options, each in its own language, then "to continue in <current language>, press hash", played ONCE.
-        A language key (during it or within `menu_wait_s` after) switches; `#` or no key keeps the current language
-        and goes on. `*` is dropped."""
+        """Ten options, each in its own language, then "to continue in <current language>, press zero", played ONCE.
+        A language key (1-9, `*` for Punjabi; during it or within `menu_wait_s` after) switches; `0` or no key keeps
+        the current language and goes on. `#` is dropped."""
         def wanted(k: str) -> bool:
             return k in LANGUAGE_BY_KEY or k == CONTINUE_KEY
         self._drain()
@@ -348,12 +349,12 @@ class KeypadCall:
                 log.info("language menu: no choice; keeping %s", self.language)
                 return
         if key == CONTINUE_KEY:
-            log.info("language menu: # pressed; keeping %s", self.language)
+            log.info("language menu: 0 pressed; keeping %s", self.language)
             return
         self._set_language(LANGUAGE_BY_KEY[key])
 
     async def _greet(self) -> None:
-        """The opening line, once per call. A 9 keyed during it or within `window_s` after it opens the menu; a `#`
+        """The opening line, once per call. A 9 keyed during it or within `window_s` after it opens the menu; a `0`
         goes straight on in the current language (cutting the greeting short); any other early key is dropped (the
         enter-digits prompt has not been played yet)."""
         if self.greeted:
