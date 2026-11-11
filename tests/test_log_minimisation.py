@@ -4,13 +4,15 @@ Evidence traces and the audit log are unchanged contracts, so they are pinned he
 """
 import hashlib
 import json
+import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 from decision_engine.evidence.evidence_record import stable_trace
 from loan_advisory.agent.contracts import AgentRequest, Session
 from loan_advisory.agent.runtime import build_offline_agent
 from loan_advisory.agent.tools import HandoffQueue
-from loan_advisory.agent.voice_log import turn_row
+from loan_advisory.agent.voice_log import TTSPrivacyFilter, mark_tts_success, record_tts_error_event, turn_row
 from loan_advisory.infrastructure.evidence_store import FrappeEvidenceSink
 
 SENTINEL = "987654321"
@@ -62,6 +64,38 @@ def test_voice_turn_row_drops_the_transcript_and_keeps_metrics():
     assert row["ts"] == 123.0 and row["locale"] == "en" and row["stt_engine"] == "whisper"
     assert row["user_audio_s"] == 1.25 and row["filler"] is True and row["intent"] == "explain"
     assert row["stt_done_ms"] == 400.0 and row["graph_done_ms"] == 1000.0
+
+
+def test_voice_turn_records_tts_stages_and_first_audible_proxy_without_private_text():
+    secret = f"caller transcript and digits {SENTINEL}"
+    info = {"transcript": secret, "locale": "te", "tts_provider": "gnani"}
+    record_tts_error_event(info, SimpleNamespace(error=RuntimeError(secret), recoverable=True))
+    mark_tts_success(info)
+    marks = {"user_stopped": 10.0, "tts_request_start": 10.2, "tts_first_audio": 10.6,
+             "graph_done": 10.8, "agent_speaking": 10.9}
+    row = turn_row(info, marks, 123.0)
+
+    raw = json.dumps(row, ensure_ascii=False)
+    assert secret not in raw and SENTINEL not in raw and "transcript" not in row
+    assert row["tts_provider"] == "gnani" and row["tts_status"] == "ok" and row["tts_recovered"] is True
+    assert row["tts_error_count"] == 1 and row["tts_retry_count"] == 1 and row["tts_error_kind"] == "provider_error"
+    assert row["tts_request_start_ms"] == 200.0 and row["tts_first_audio_ms"] == 600.0
+    assert row["first_audible_ms"] == row["agent_speaking_ms"] == 900.0
+    assert row["first_audible_stage"] == "livekit_agent_speaking"
+
+
+def test_tts_sdk_warning_logs_drop_error_body_but_keep_safe_provider_status():
+    secret = f"provider echoed caller words {SENTINEL}"
+    sanitizer = TTSPrivacyFilter()
+    gnani = logging.LogRecord("livekit.plugins.gnani.log", logging.ERROR, "", 0,
+                              "Gnani TTS SSE error: %s - %s", (503, secret), None)
+    retry = logging.LogRecord("livekit.agents", logging.WARNING, "", 0,
+                              "failed to synthesize speech: %s, retrying in %ss", (secret, 2), None)
+
+    sanitizer.filter(gnani)
+    sanitizer.filter(retry)
+    assert secret not in gnani.getMessage() and "503" in gnani.getMessage()
+    assert secret not in retry.getMessage()
 
 
 def test_voice_worker_never_adds_the_transcript_to_the_turn_info():

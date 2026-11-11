@@ -53,3 +53,8 @@ def test_user_bubble_text_and_assistant_caption_meet_wcag_aa():
     css = _css()
     assert contrast(_color_of(css, ".u", "color"), _color_of(css, ".u", "background")) >= 4.5
     assert contrast(_color_of(css, ".meta", "color"), _color_of(css, ".a", "background")) >= 4.5
+
+
+def test_synthetic_demo_disclosure_remains_visible_on_voice_page():
+    html = PAGE.read_text(encoding="utf-8")
+    assert "Synthetic demo" in html and "Demo accounts are synthetic." in html

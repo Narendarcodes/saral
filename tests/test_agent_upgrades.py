@@ -318,7 +318,8 @@ def test_busy_llm_turn_finishes_inside_the_deadline_with_the_template(tmp_path):
     assert took < 2.6, took
     assert r.intent == "explain"  # classify budget hit -> deterministic rules
     assert "fallback_template" in r.guard_flags and "deadline" in r.guard_flags
-    assert "can't approve this application" in r.answer and "synthetic" in r.answer.lower()
+    assert "can't approve this application" in r.answer and "synthetic" not in r.answer.lower()
+    assert "I can share general steps" not in r.answer
     assert all(d is not None for _, d in llm.deadlines)  # every LLM call carried the deadline
 
 

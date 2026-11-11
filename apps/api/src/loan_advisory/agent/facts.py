@@ -251,9 +251,9 @@ _number = _finite  # "A finite int/float from the engine record, else None" (nam
 BORROWER_OUTCOME = {"ELIGIBILITY_CONDITIONS_MET": "APPROVED", "COUNTER_OFFER": "COUNTER", "MANUAL_REVIEW": "REVIEW",
                     "MORE_INFORMATION_REQUIRED": "INFO_REQUESTED", "DECLINE": "REJECTED"}
 OUTCOME_PLAIN = {
-    "APPROVED": {"en": "your application met our conditions in this demo check (not a final loan sanction)",
-                 "hi": "इस डेमो जाँच में आपका आवेदन हमारी शर्तें पूरी करता है (यह अंतिम लोन मंज़ूरी नहीं है)",
-                 "te": "ఈ డెమో తనిఖీలో మీ దరఖాస్తు మా షరతులను నెరవేర్చింది (ఇది తుది లోన్ మంజూరు కాదు)"},
+    "APPROVED": {"en": "your application met our conditions in this check (not a final loan sanction)",
+                 "hi": "इस जाँच में आपका आवेदन हमारी शर्तें पूरी करता है (यह अंतिम लोन मंज़ूरी नहीं है)",
+                 "te": "ఈ తనిఖీలో మీ దరఖాస్తు మా షరతులను నెరవేర్చింది (ఇది తుది లోన్ మంజూరు కాదు)"},
     "COUNTER": {"en": "we can't offer the full amount you asked for, but we can offer a smaller loan",
                 "hi": "हम आपकी माँगी गई पूरी राशि नहीं दे सकते, पर कम राशि का लोन दे सकते हैं",
                 "te": "మీరు అడిగిన పూర్తి మొత్తం ఇవ్వలేము, కానీ తక్కువ మొత్తంలో లోన్ ఇవ్వగలము"},

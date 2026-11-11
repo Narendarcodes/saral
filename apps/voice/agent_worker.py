@@ -43,9 +43,10 @@ full answer card). Decision prefetch from ZEN is not wired yet (UnwiredDecisionP
 person. DTMF must be enabled on the SIP trunk; this is demo-grade authentication (4 digits).
 
 Every turn writes one JSON line (VOICE_TURN_LOG) with: end-of-user-speech -> STT done -> graph answer (and the
-graph's LLM TTFT) -> first TTS audio -> agent speaking. It keeps timings, locale, STT engine, audio duration,
-filler and the session id only, never the transcript. The same answer card (decision, citations) is published on
-the data channel (topic "advisor") for the page to render.
+graph's LLM TTFT) -> first TTS request/audio -> LiveKit agent-speaking event (the first-audible proxy, not a device
+playback acknowledgement). It keeps timings, locale, STT engine, TTS status/retry counts, audio duration, filler and
+the session id only, never the transcript. The same answer card (decision, citations) is published on the data
+channel (topic "advisor") for the page to render.
 """
 import asyncio
 import json
@@ -67,7 +68,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from loan_advisory.agent import observability as obs  # noqa: E402  (OTel -> Phoenix; no-op unless AGENT_TRACING=1)
 from loan_advisory.agent.settings import VoiceSettings  # noqa: E402
 from loan_advisory.agent.streaming import speakable  # noqa: E402
-from loan_advisory.agent.voice_log import turn_row  # noqa: E402
+from loan_advisory.agent.voice_log import (install_tts_log_sanitizer, mark_tts_success, record_tts_error,
+                                           record_tts_error_event, turn_row)  # noqa: E402
 from loan_advisory.state_paths import append_private  # noqa: E402  (P0c private creation)
 from voice_assertion_exchange import Assertions, PhoneAssertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
 import caller_verification as cv  # noqa: E402  (keypad caller verification; no LiveKit imports)
@@ -91,6 +93,12 @@ MAX_TIMEOUTS = 2                 # a second keypad timeout ends the call
 GRAPH_LOCALES = {"en-IN": "en", "hi-IN": "hi", "te-IN": "te"}  # call languages the graph also has templates for
 FIRST_NAME = re.compile(r"^[^\W\d_][^\W\d_'\-]{0,39}$")
 log = logging.getLogger("saral.voice.worker")
+install_tts_log_sanitizer()
+
+
+def wire_tts_telemetry(tts_engine, turn: "Turn") -> None:
+    """Collect only retryability, a fixed error kind and numeric status from provider error events."""
+    tts_engine.on("error", lambda event: record_tts_error_event(turn.info, event))
 
 
 class PhoneCall:
@@ -545,13 +553,27 @@ class AdvisorAgent(Agent):
                 async for frame in self._prompt_frames(self.prompts.plan(sentence, self.language)):
                     yield frame
                 continue
+            self.turn.mark("tts_request_start")
+            self.turn.info.update(tts_provider="gnani", tts_status="pending")
+            errors_before = self.turn.info.get("tts_error_count", 0)
             t0 = time.perf_counter()
-            async with tts_engine.synthesize(sentence) as stream:
-                async for ev in stream:
-                    if "tts_first_audio" not in self.turn.t:
-                        self.turn.mark("tts_first_audio")
-                        self.turn.info.setdefault("tts_ttfa_ms", round((time.perf_counter() - t0) * 1000, 1))
-                    yield ev.frame
+            try:
+                async with tts_engine.synthesize(sentence) as stream:
+                    async for ev in stream:
+                        if "tts_first_audio" not in self.turn.t:
+                            self.turn.mark("tts_first_audio")
+                            self.turn.info.setdefault("tts_ttfa_ms", round((time.perf_counter() - t0) * 1000, 1))
+                        mark_tts_success(self.turn.info)
+                        yield ev.frame
+            except Exception as exc:
+                if self.turn.info.get("tts_error_count", 0) == errors_before:
+                    record_tts_error(self.turn.info, exc, recoverable=False)
+                else:
+                    self.turn.info["tts_status"] = "failed"
+                log.warning("voice TTS failed: status=%s kind=%s http_status=%s retries=%d",
+                            self.turn.info.get("tts_status"), self.turn.info.get("tts_error_kind"),
+                            self.turn.info.get("tts_http_status"), self.turn.info.get("tts_retry_count", 0))
+                raise RuntimeError("voice TTS failed") from None
 
 
 def wire_tone_events(session: AgentSession, agent: AdvisorAgent) -> None:
@@ -627,6 +649,7 @@ async def entrypoint(ctx: JobContext):
     locale = first.get("locale") if first.get("locale") in ("en", "hi", "te") else "en"
     turn = Turn()
     stt_engine, tts_engine = build_stt(CFG.speech, locale), build_tts(CFG.speech, locale)
+    wire_tts_telemetry(tts_engine, turn)
     session = AgentSession(vad=ctx.proc.userdata["vad"], stt=stt_engine, tts=tts_engine, llm=GraphLLM(),
                            min_endpointing_delay=CFG.min_endpointing_s)
 
@@ -689,6 +712,7 @@ async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant, 
     stt_engine = build_stt_for_language(CFG.speech, language)
     tts_engine = build_tts(CFG.speech, locale)
     tts_engine.update_options(language=language)
+    wire_tts_telemetry(tts_engine, turn)
     session = AgentSession(vad=ctx.proc.userdata["vad"], stt=stt_engine, tts=tts_engine, llm=GraphLLM(),
                            min_endpointing_delay=CFG.min_endpointing_s, **phone_session_kwargs())
     agent = AdvisorAgent(gate, locale, ctx.room, turn, phone=phone, prompts=ctx.proc.userdata.get("prompts"))
@@ -712,9 +736,27 @@ async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant, 
     if web_phone:
         ctx.room.on("data_received", cv.dtmf_data_handler(participant.identity, phone.keypad))
 
+    @session.on("user_input_transcribed")
+    def _t(ev):
+        if getattr(ev, "is_final", False):  # retain timings and engine only; never the transcript
+            turn.mark("stt_done")
+            turn.info.update(stt_engine=f"gnani/{stt_engine.model}")
+            if "user_stopped" in turn.t:
+                turn.info["stt_ms"] = round((turn.t["stt_done"] - turn.t["user_stopped"]) * 1000, 1)
+
+    @session.on("user_state_changed")
+    def _u(ev):
+        if getattr(ev, "new_state", None) == "speaking":
+            turn.reset()
+        elif getattr(ev, "new_state", None) == "listening":
+            turn.mark("user_stopped")
+
     @session.on("agent_state_changed")
     def _a(ev):
-        if getattr(ev, "old_state", None) == "speaking":
+        if getattr(ev, "new_state", None) == "speaking":
+            turn.mark("agent_speaking")
+            turn.flush()
+        elif getattr(ev, "old_state", None) == "speaking":
             agent.tone.on_agent_turn_end()
 
     wire_tone_events(session, agent)

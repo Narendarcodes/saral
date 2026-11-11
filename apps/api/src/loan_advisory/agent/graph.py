@@ -168,9 +168,12 @@ _RULES = [  # regex fallback when the LLM classifier is unavailable
 # High-precision intents that skip the LLM classifier (AGENT_FAST_CLASSIFY). Used only when exactly ONE matches;
 # anything ambiguous still goes to the LLM. English + Hindi + Telugu.
 _FAST = [
-    ("explain", re.compile(r"\bwhy\b.{0,40}\b(reject\w*|declin\w*|denied|turned down|refused|not approved)\b|"
+    ("explain", re.compile(r"\bwhy\b.{0,50}\b(reject\w*|declin\w*|denied|turned down|refused|not approved|didn'?t (?:you )?approve|did not (?:you )?approve)\b|"
+                           r"\b(reject\w*|declin\w*|denied|not approved)\b.{0,40}\bwhy\b|"
                            r"क्यों.{0,30}(रिजेक्ट|अस्वीकार|नामंज़ूर|नामंजूर|ख़ारिज|खारिज)|(रिजेक्ट|अस्वीकार|नामंज़ूर|नामंजूर|ख़ारिज|खारिज).{0,30}क्यों|"
-                           r"ఎందుకు.{0,30}(తిరస్కర|రిజెక్ట్)|(తిరస్కర|రిజెక్ట్).{0,30}ఎందుకు|"
+                           r"ఎందుకు.{0,40}(తిరస్కర|రిజెక్ట్|reject|declin|denied|not approved|approve)|"
+                           r"(తిరస్కర|రిజెక్ట్|reject\w*|declin\w*|denied|not approved|approve\w*).{0,50}(ఎందుకు|ఎందుకని|enduku|endukani)|"
+                           r"\b(?:why|enduku|endukani)\b.{0,50}\b(?:reject\w*|declin\w*|denied|not approved|approve\w*|sanction\w*)\b|"
                            r"\b(what(?:'s| is| was)|tell me|show me)\s+my\s+(recorded\s+)?(credit score|cibil score|"
                            r"monthly income|income|salary|emis?|foir|job tenure)\b", re.I)),
     ("improve", re.compile(r"\b(what (can|should) i do|how (can|do) i improve|improve (my|before|so)|before i re-?apply|"
@@ -909,8 +912,13 @@ class AdvisoryAgent:
                         s["abstained"], s["cited"] = True, []
                 if self._violations(s, draft):  # last resort: a template that carries no data at all
                     draft = _tmpl("what_if_error", req.locale) if intent == "what_if" else P.template("other", req.locale)
-        if draft and intent in ("explain", "improve", "what_if", "status", "distress") and s.get("status") in (None, "ok") \
-                and not re.search(P.SYNTHETIC_MARK, draft, re.I):
+        if (
+            req.channel != "voice"
+            and draft
+            and intent in ("explain", "improve", "what_if", "status", "distress")
+            and s.get("status") in (None, "ok")
+            and not re.search(P.SYNTHETIC_MARK, draft, re.I)
+        ):
             draft = draft.rstrip() + "\n\n" + P.SYNTHETIC_NOTE.get(req.locale, P.SYNTHETIC_NOTE["en"])
             gflags.append("synthetic_label_appended")
         st = self._stream(s)
@@ -1009,6 +1017,7 @@ class AdvisoryAgent:
         """Deterministic answer from the same facts: plain outcome, one plain reason, the offer, general guidance.
         Never a code, rule name, threshold, target or gap (Q-09)."""
         req, intent = self._req(s), s["intent"]
+        voice = getattr(req, "channel", "text") == "voice"
         loc = req.locale
         if intent == "policy":
             busy = "deadline" in (s.get("guard_flags") or []) or "llm_error" in (s.get("guard_flags") or [])
@@ -1030,13 +1039,21 @@ class AdvisoryAgent:
             if reason:
                 lines.append(reason["plain"][0].upper() + reason["plain"][1:] + end)
             bf = F.bureau_facts(rec)
-            if bf and bf.get("score_source_plain"):
+            if bf and bf.get("score_source_plain") and not voice:
                 lines.append(fx["bureau"].format(src=bf["score_source_plain"]))
-            lines.append(_tmpl("distress_review_offer", loc) if intent == "distress" else fx["offer"])
+            if intent == "distress":
+                lines.append(_tmpl("distress_review_offer", loc))
+            elif not voice:
+                lines.append(fx["offer"])
         elif intent == "improve":
-            for i, t in enumerate(F.guidance_for(rec, loc), 1):
-                lines.append(f"{i}. {t['general_guidance']}")
-            lines.append(_fx_offer(loc))
+            guidance = F.guidance_for(rec, loc)
+            if voice:
+                if guidance:
+                    lines.append(guidance[0]["general_guidance"])
+            else:
+                for i, t in enumerate(guidance, 1):
+                    lines.append(f"{i}. {t['general_guidance']}")
+                lines.append(_fx_offer(loc))
         elif intent == "what_if":
             w = s["what_if"]
             res = F.what_if_result(w)
@@ -1307,4 +1324,3 @@ _APP_REF = re.compile(r"\b(?:SYN-LA|APP-TEST|ACC-LOAP-\d{4})-\d+\b|\bSYN-LA-\d+\
 def _foreign_ref(msg: str, own: str) -> bool:
     """An application reference in the message that is not the signed-in applicant's own."""
     return any(m.group(0).upper() != (own or "").upper() for m in _APP_REF.finditer(msg or ""))
-

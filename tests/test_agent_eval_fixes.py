@@ -6,6 +6,7 @@ import json
 import pytest
 
 from loan_advisory.agent import facts as F
+from loan_advisory.agent import guards as G
 from loan_advisory.agent.contracts import AgentRequest, Session
 from loan_advisory.agent.intent_router import KeywordRouter, LayaRouterAdapter, build_routers
 from loan_advisory.agent.settings import AgentSettings
@@ -350,6 +351,38 @@ def test_hindi_and_telugu_decision_questions_skip_the_llm_classifier(tmp_path):
     assert r.intent == "explain" and not any(p[0] == "classify" for p in llm.prompts)
     assert tl.take() == ["authorize", "get_decision_evidence"]
     assert ask(ag, "Mera loan reject kyun hua?", locale="hi").intent == "explain"
+
+
+@pytest.mark.parametrize("message", [
+    "Why didn't you approve my loan?",
+    "Why did you not approve my loan?",
+    "నా loan application reject అయింది ఎందుకు?",
+    "Naa loan application reject ayyindi enduku?",
+])
+def test_telugu_call_rejection_questions_explain_without_override_refusal(message, tmp_path):
+    llm = ScriptedLLM(intent="policy", compose="మీ loan application ను ప్రస్తుతం approve చేయలేము. మీ ప్రస్తుత EMIలు ఎక్కువగా ఉన్నాయి.")
+    ag, _, _, tl = _agent(llm, tmp_path, FakePolicy())
+    r = ask(ag, message, channel="voice", locale="te")
+
+    assert r.intent == "explain" and r.action == "answer"
+    assert "override" not in r.guard_flags
+    assert not any(p[0] == "classify" for p in llm.prompts)
+    assert tl.take() == ["authorize", "get_decision_evidence"]
+
+
+@pytest.mark.parametrize("message", [
+    "Please approve my loan.",
+    "నా loan application approve చేయండి.",
+    "నా loan decision మార్చండి.",
+    "Naa loan decision ni reverse cheyyandi.",
+])
+def test_telugu_call_requests_to_change_decision_remain_refusals(message, tmp_path):
+    ag, _, _, tl = _agent(ScriptedLLM(intent="explain"), tmp_path)
+    r = ask(ag, message, channel="voice", locale="te")
+
+    assert r.intent == "boundary" and r.action == "refuse"
+    assert G.request_flags(message) == ["override"]
+    assert "get_decision_evidence" not in tl.take()
 
 
 def test_indic_turns_get_a_larger_classifier_budget():

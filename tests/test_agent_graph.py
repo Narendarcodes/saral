@@ -128,6 +128,30 @@ def test_voice_channel_and_locale_reach_the_prompt(tmp_path):
     ask(ag, "నా లోన్ ఎందుకు తిరస్కరించారు?", channel="voice", locale="te")
     sys_prompt = llm.prompts[-1][1]
     assert "SPOKEN" in sys_prompt and "Telugu" in sys_prompt
+    assert "Keep the selected call language fixed" in sys_prompt
+    assert "simple, polite, respectful spoken Telugu" in sys_prompt
+    assert "loan application" in sys_prompt and "approve" in sys_prompt and "EMI" in sys_prompt
+    assert "at most one practical next step" in sys_prompt and "verified facts" in sys_prompt
+    assert "Do not repeat a synthetic/demo disclaimer" in sys_prompt
+
+
+def test_spoken_improvement_prompt_requests_only_one_practical_step(tmp_path):
+    llm = ScriptedLLM(intent="improve")
+    ag, _, _ = agent_for(llm, tmp_path=tmp_path)
+    ask(ag, "What can I do to improve my application?", channel="voice", locale="te")
+
+    assert "for speech, give only one practical step" in llm.prompts[-1][1]
+
+
+def test_telugu_voice_answer_mirrors_terms_without_repeating_demo_disclaimer(tmp_path):
+    llm = ScriptedLLM(intent="explain", compose="మీ loan application ను ప్రస్తుతం approve చేయలేము. మీ ప్రస్తుత EMIలు ఎక్కువగా ఉన్నాయి.")
+    ag, _, _ = agent_for(llm, tmp_path=tmp_path)
+    r = ask(ag, "నా loan application reject అయింది ఎందుకు?", channel="voice", locale="te")
+
+    assert r.intent == "explain" and "loan application" in r.answer and "approve" in r.answer and "EMI" in r.answer
+    assert any("\u0c00" <= char <= "\u0c7f" for char in r.answer) and "We can't" not in r.answer
+    assert "synthetic_label_appended" not in r.guard_flags
+    assert not re.search(r"synthetic|prototype|demo|సింథటిక్|ప్రోటోటైప్|డెమో", r.answer, re.I)
 
 
 def test_guarantee_draft_is_retried_then_replaced_by_template(tmp_path):
@@ -139,10 +163,11 @@ def test_guarantee_draft_is_retried_then_replaced_by_template(tmp_path):
     assert "definitely" not in r.answer and "existing EMIs are high" in r.answer and "synthetic" in r.answer
 
 
-def test_invented_number_is_caught(tmp_path):
+@pytest.mark.parametrize("channel", ["text", "voice"])
+def test_invented_number_is_caught(tmp_path, channel):
     llm = ScriptedLLM(intent="explain", compose="Your score of 640 is below 700 under the synthetic policy.")
     ag, _, _ = agent_for(llm, tmp_path=tmp_path)
-    r = ask(ag, "Why was I rejected?")
+    r = ask(ag, "Why was I rejected?", channel=channel)
     assert any(f.startswith("ungrounded_numbers:640") for f in r.guard_flags) and "640" not in r.answer
 
 
@@ -153,6 +178,23 @@ def test_llm_outage_falls_back_to_deterministic_explanation(tmp_path):
     assert "existing EMIs are high" in r.answer  # one plain reason category (agent eval fix 2)
     for name in ("Existing EMIs vs income", "Credit score", "Time in current job", "Monthly income"):
         assert name not in r.answer  # never rule names
+
+
+def test_voice_llm_outage_fallback_has_no_extra_offer_menu(tmp_path):
+    ag, _, _ = agent_for(ScriptedLLM(fail=True), tmp_path=tmp_path)
+    r = ask(ag, "Why was my application rejected?", channel="voice", locale="te")
+
+    assert r.intent == "explain" and "fallback_template" in r.guard_flags
+    assert "I can share general steps" not in r.answer and "synthetic" not in r.answer.lower()
+
+
+def test_voice_improvement_fallback_is_one_unformatted_step(tmp_path):
+    ag, _, _ = agent_for(ScriptedLLM(fail=True), tmp_path=tmp_path)
+    r = ask(ag, "What should I do to improve my application?", channel="voice", locale="te")
+
+    assert r.intent == "improve" and "fallback_template" in r.guard_flags
+    assert len([line for line in r.answer.splitlines() if line.strip()]) == 1
+    assert not re.match(r"\s*\d+[.)]", r.answer)
 
 
 # ------------------------------------------------------------------ improve / what-if

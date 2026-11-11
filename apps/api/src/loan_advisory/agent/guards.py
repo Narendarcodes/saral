@@ -29,7 +29,11 @@ _REQ = {
     "override": r"\b(approve|sanction)\s+(my|the|this)\s+(loan|application)\b|\bapprove\s+(me|it)\b|\bmark\b.{0,20}\bapproved\b|"
                 r"\b(reconsider|overturn|override|reverse|cancel|change|revoke|withdraw)\s+(the\s+|my\s+|this\s+)?(loan\s+|application\s+)?(decision|rejection|outcome)\b|"
                 r"\b(reconsider|overturn|reverse|re-?evaluate)\s+(my|the|this)\s+(loan|application)\b|"
-                r"\b(change|turn|make|convert|update|switch)\b.{0,40}\b(to|as|into)\s+(approved|sanctioned|accepted)\b",
+                r"\b(change|turn|make|convert|update|switch)\b.{0,40}\b(to|as|into)\s+(approved|sanctioned|accepted)\b|"
+                r"(?:నా|నాకు).{0,35}(?:లోన్|దరఖాస్తు|loan|application|నిర్ణయం|decision).{0,40}"
+                r"(?:approve|sanction|మంజూరు|ఆమోదించ|మార్చ|reverse|overturn|override|change)|"
+                r"\b(?:naa|naaku)\b.{0,35}\b(?:loan|application|decision)\b.{0,40}"
+                r"\b(?:approve|sanction|change|reverse|overturn|override)\w*\b",
     # editing the applicant's own declared figures: "update my income to 60000 in the record"
     "edit_record": r"\b(update|change|edit|modify|correct|set|increase|raise)\b.{0,30}\b(record|file|application data|my income in|my score in|the system)\b|"
                    r"\b(update|change|edit|set)\s+my\s+(income|salary|score|credit score|emi|obligations|tenure)\s+(to|in)\b",
@@ -86,6 +90,18 @@ _REQ = {
                  r"instructions?\s+bhool|ignore\s+(?:apne|saare|sare|pichle|previous)\b[^.!?]{0,20}instructions",
 }
 REQ_PATTERNS = {k: re.compile(v, re.I) for k, v in _REQ.items()}
+
+_DECISION_WHY_QUESTION = re.compile(
+    r"\bwhy\b[^.!?]{0,80}\b(?:didn'?t|did not|did you not|don't|do not|do you not|can't|cannot|won't|wouldn't|wasn't|was not|not|never)\b"
+    r"[^.!?]{0,40}\b(?:approve|sanction)\w*\b|"
+    r"\bwhy\b[^.!?]{0,80}\b(?:reject\w*|declin\w*|denied|not approved|turned down)\b|"
+    r"\b(?:reject\w*|declin\w*|denied|not approved|turned down)\b[^.!?]{0,60}"
+    r"(?:why|ఎందుకు|ఎందుకని|enduku|endukani|kyun|kyon)|"
+    r"(?:approve|sanction|ఆమోద|మంజూరు)\w*[^.!?]{0,60}(?:why|ఎందుకు|ఎందుకని|enduku|endukani)", re.I)
+_DIRECT_OVERRIDE_ASK = re.compile(
+    r"\b(?:please|kindly|can|could|would|will)\s+you\s+(?:please\s+)?"
+    r"(?:approve|sanction|mark|change|reconsider|overturn|override|reverse|cancel)\b|"
+    r"^\s*(?:please|kindly)?\s*(?:approve|sanction|mark|change|reconsider|overturn|override|reverse|cancel)\b", re.I)
 
 # --- record tampering, kept out of the dict because framing decides the answer -------------------------------
 # "How do I raise my sanctioned limit?" / "How do I remove a wrong CIBIL entry?" are informational questions and PR
@@ -149,6 +165,8 @@ def request_flags(message: str, own_ref: str | None = None) -> list[str]:
         m = p.search(message)
         if not m:
             continue
+        if k == "override" and _DECISION_WHY_QUESTION.search(message) and not _DIRECT_OVERRIDE_ASK.search(message):
+            continue  # asking why the lender did not approve is not a request to change its decision
         if k == "other_applicant" and own_ref and own_ref.lower() in message.lower() and not re.search(
                 r"\b(another|other|someone|friend|brother|sister|wife|husband)\b", message, re.I):
             continue  # applicant naming their OWN reference is fine

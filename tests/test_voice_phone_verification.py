@@ -202,14 +202,16 @@ def test_entrypoint_reads_caller_id_with_attribute_fallbacks(worker):
 def test_unknown_caller_hears_greeting_and_one_refusal_then_the_call_ends(worker, cv, pt):
     agent, fake, calls, hangups = make_agent(worker, cv, reason=cv.UNKNOWN_CALLER)
     assert asyncio.run(agent.verify_caller()) == cv.UNKNOWN_CALLER
-    assert [s["text"] for s in fake.said] == [pt.text("en-IN", "greeting"), pt.text("en-IN", "unknown_caller")]
+    assert [s["text"] for s in fake.said] == [
+        pt.text("en-IN", "greeting"), pt.text("en-IN", "continue"), pt.text("en-IN", "unknown_caller")
+    ]
     assert all(s["allow_interruptions"] is False and s["add_to_chat_ctx"] is False for s in fake.said)
     assert hangups == [1] and agent.ended and calls == [] and fake.tts.synthesized == []
     # the caller keeps saying "hello": nothing is replayed, nothing reaches the server, no second hang-up
     for text in ("hi", "hello", "what is my loan status"):
         assert asyncio.run(drain(agent.llm_node(user_ctx(text), [], None))) == []
     assert asyncio.run(agent.verify_caller()) == cv.UNKNOWN_CALLER
-    assert len(fake.said) == 2 and hangups == [1] and agent._http is None
+    assert len(fake.said) == 3 and hangups == [1] and agent._http is None
 
 
 def test_unavailable_directory_is_the_same_single_refusal(worker, cv, pt):
