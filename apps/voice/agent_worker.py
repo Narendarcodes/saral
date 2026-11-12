@@ -69,7 +69,7 @@ from loan_advisory.agent import observability as obs  # noqa: E402  (OTel -> Pho
 from loan_advisory.agent.settings import VoiceSettings  # noqa: E402
 from loan_advisory.agent.streaming import speakable  # noqa: E402
 from loan_advisory.agent.voice_log import (install_tts_log_sanitizer, mark_tts_success, record_tts_error,
-                                           record_tts_error_event, turn_row)  # noqa: E402
+                                           tts_error_context, turn_row, wire_tts_telemetry)  # noqa: E402
 from loan_advisory.state_paths import append_private  # noqa: E402  (P0c private creation)
 from voice_assertion_exchange import Assertions, PhoneAssertions  # noqa: E402  (Frappe exchange; no LiveKit imports)
 import caller_verification as cv  # noqa: E402  (keypad caller verification; no LiveKit imports)
@@ -94,11 +94,6 @@ GRAPH_LOCALES = {"en-IN": "en", "hi-IN": "hi", "te-IN": "te"}  # call languages 
 FIRST_NAME = re.compile(r"^[^\W\d_][^\W\d_'\-]{0,39}$")
 log = logging.getLogger("saral.voice.worker")
 install_tts_log_sanitizer()
-
-
-def wire_tts_telemetry(tts_engine, turn: "Turn") -> None:
-    """Collect only retryability, a fixed error kind and numeric status from provider error events."""
-    tts_engine.on("error", lambda event: record_tts_error_event(turn.info, event))
 
 
 class PhoneCall:
@@ -554,25 +549,28 @@ class AdvisorAgent(Agent):
                     yield frame
                 continue
             self.turn.mark("tts_request_start")
-            self.turn.info.update(tts_provider="gnani", tts_status="pending")
-            errors_before = self.turn.info.get("tts_error_count", 0)
+            turn_times, turn_info = self.turn.t, self.turn.info
+            turn_info.update(tts_provider="gnani", tts_status="pending")
+            errors_before = turn_info.get("tts_error_count", 0)
             t0 = time.perf_counter()
             try:
-                async with tts_engine.synthesize(sentence) as stream:
-                    async for ev in stream:
-                        if "tts_first_audio" not in self.turn.t:
-                            self.turn.mark("tts_first_audio")
-                            self.turn.info.setdefault("tts_ttfa_ms", round((time.perf_counter() - t0) * 1000, 1))
-                        mark_tts_success(self.turn.info)
-                        yield ev.frame
+                with tts_error_context(turn_info):
+                    async with tts_engine.synthesize(sentence) as stream:
+                        async for ev in stream:
+                            if "tts_first_audio" not in turn_times:
+                                first_audio = time.perf_counter()
+                                turn_times["tts_first_audio"] = first_audio
+                                turn_info.setdefault("tts_ttfa_ms", round((first_audio - t0) * 1000, 1))
+                            mark_tts_success(turn_info)
+                            yield ev.frame
             except Exception as exc:
-                if self.turn.info.get("tts_error_count", 0) == errors_before:
-                    record_tts_error(self.turn.info, exc, recoverable=False)
+                if turn_info.get("tts_error_count", 0) == errors_before:
+                    record_tts_error(turn_info, exc, recoverable=False)
                 else:
-                    self.turn.info["tts_status"] = "failed"
+                    turn_info["tts_status"] = "failed"
                 log.warning("voice TTS failed: status=%s kind=%s http_status=%s retries=%d",
-                            self.turn.info.get("tts_status"), self.turn.info.get("tts_error_kind"),
-                            self.turn.info.get("tts_http_status"), self.turn.info.get("tts_retry_count", 0))
+                            turn_info.get("tts_status"), turn_info.get("tts_error_kind"),
+                            turn_info.get("tts_http_status"), turn_info.get("tts_retry_count", 0))
                 raise RuntimeError("voice TTS failed") from None
 
 
@@ -649,7 +647,7 @@ async def entrypoint(ctx: JobContext):
     locale = first.get("locale") if first.get("locale") in ("en", "hi", "te") else "en"
     turn = Turn()
     stt_engine, tts_engine = build_stt(CFG.speech, locale), build_tts(CFG.speech, locale)
-    wire_tts_telemetry(tts_engine, turn)
+    wire_tts_telemetry(tts_engine)
     session = AgentSession(vad=ctx.proc.userdata["vad"], stt=stt_engine, tts=tts_engine, llm=GraphLLM(),
                            min_endpointing_delay=CFG.min_endpointing_s)
 
@@ -712,7 +710,7 @@ async def phone_entrypoint(ctx: JobContext, participant: rtc.RemoteParticipant, 
     stt_engine = build_stt_for_language(CFG.speech, language)
     tts_engine = build_tts(CFG.speech, locale)
     tts_engine.update_options(language=language)
-    wire_tts_telemetry(tts_engine, turn)
+    wire_tts_telemetry(tts_engine)
     session = AgentSession(vad=ctx.proc.userdata["vad"], stt=stt_engine, tts=tts_engine, llm=GraphLLM(),
                            min_endpointing_delay=CFG.min_endpointing_s, **phone_session_kwargs())
     agent = AdvisorAgent(gate, locale, ctx.room, turn, phone=phone, prompts=ctx.proc.userdata.get("prompts"))

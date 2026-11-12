@@ -407,6 +407,7 @@ TEMPLATES = {
                             "about loan rules or charges?"),
         "distress_kind": "I understand this is worrying, and I'm sorry you're going through this.",
         "distress_review_offer": "If you'd like, I can ask a person on our team to review your application.",
+        "improve_no_guidance": "I don't see a specific improvement reason in this record. Please confirm the latest details with your lender.",
     },
     "hi": {
         "info_requested": ("आपके आवेदन की जाँच अभी पूरी नहीं हो सकी, क्योंकि कुछ जानकारी बाकी है: {missing}। "
@@ -465,6 +466,7 @@ TEMPLATES = {
         "clarify_generic": "क्या आप थोड़ा और बता सकते हैं? यह आपके अपने आवेदन के बारे में है, या लोन के नियमों या शुल्क का सामान्य सवाल?",
         "distress_kind": "मैं समझता हूँ कि यह चिंता की बात है, और मुझे अफ़सोस है कि आप इससे गुज़र रहे हैं।",
         "distress_review_offer": "आप चाहें तो मैं हमारी टीम के एक व्यक्ति से आपका आवेदन देखने को कह सकता हूँ।",
+        "improve_no_guidance": "इस रिकॉर्ड में सुधार के लिए कोई खास कारण नहीं दिख रहा। कृपया ताज़ा जानकारी के लिए अपने लेंडर से पुष्टि करें।",
     },
     "te": {
         "info_requested": ("కొన్ని వివరాలు ఇంకా రాలేదు, అందుకే మీ దరఖాస్తు తనిఖీ ఇంకా పూర్తి కాలేదు: {missing}. "
@@ -523,6 +525,7 @@ TEMPLATES = {
         "clarify_generic": "కొంచెం ఎక్కువ చెప్పగలరా? ఇది మీ దరఖాస్తు గురించా, లేక లోన్ నియమాలు లేదా ఛార్జీల గురించి సాధారణ ప్రశ్నా?",
         "distress_kind": "ఇది ఆందోళన కలిగించే విషయమని అర్థం చేసుకుంటాను, మీరు ఇలాంటి పరిస్థితిలో ఉన్నందుకు బాధగా ఉంది.",
         "distress_review_offer": "మీకు కావాలంటే, మీ దరఖాస్తును చూడమని మా బృందంలోని ఒక వ్యక్తిని అడగగలను.",
+        "improve_no_guidance": "ఈ recordలో మెరుగుపరచాల్సిన ప్రత్యేక కారణం కనిపించడం లేదు. తాజా వివరాల కోసం దయచేసి lenderతో మాట్లాడండి.",
     },
 }
 

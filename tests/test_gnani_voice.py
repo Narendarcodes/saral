@@ -98,6 +98,14 @@ def test_worker_speech_path_is_gnani_only():
         assert "svara" not in text and "hx-loan-stt" not in text and "8793" not in text, path
 
 
+def test_worker_scopes_tts_error_telemetry_to_the_synthesis_turn():
+    src = (VOICE / "agent_worker.py").read_text(encoding="utf-8")
+    assert "with tts_error_context(turn_info):" in src
+    assert "turn_times, turn_info = self.turn.t, self.turn.info" in src
+    assert "wire_tts_telemetry(tts_engine)" in src
+    assert "wire_tts_telemetry(tts_engine, turn)" not in src
+
+
 def test_no_gnani_key_in_tracked_voice_code():
     for path in [VOICE / "gnani_speech.py", VOICE / "agent_worker.py", ROOT / ".env.example"]:
         for line in path.read_text(encoding="utf-8").splitlines():

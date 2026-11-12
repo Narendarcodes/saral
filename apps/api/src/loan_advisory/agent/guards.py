@@ -101,7 +101,8 @@ _DECISION_WHY_QUESTION = re.compile(
 _DIRECT_OVERRIDE_ASK = re.compile(
     r"\b(?:please|kindly|can|could|would|will)\s+you\s+(?:please\s+)?"
     r"(?:approve|sanction|mark|change|reconsider|overturn|override|reverse|cancel)\b|"
-    r"^\s*(?:please|kindly)?\s*(?:approve|sanction|mark|change|reconsider|overturn|override|reverse|cancel)\b", re.I)
+    r"(?:^|[.!?;]\s*)(?:please|kindly)?\s*"
+    r"(?:approve|sanction|mark|change|reconsider|overturn|override|reverse|cancel)\b", re.I)
 
 # --- record tampering, kept out of the dict because framing decides the answer -------------------------------
 # "How do I raise my sanctioned limit?" / "How do I remove a wrong CIBIL entry?" are informational questions and PR

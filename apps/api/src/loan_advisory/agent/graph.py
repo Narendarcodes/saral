@@ -1050,6 +1050,8 @@ class AdvisoryAgent:
             if voice:
                 if guidance:
                     lines.append(guidance[0]["general_guidance"])
+                else:
+                    lines.append(_tmpl("improve_no_guidance", loc))
             else:
                 for i, t in enumerate(guidance, 1):
                     lines.append(f"{i}. {t['general_guidance']}")

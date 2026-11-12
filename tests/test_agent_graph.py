@@ -197,6 +197,16 @@ def test_voice_improvement_fallback_is_one_unformatted_step(tmp_path):
     assert not re.match(r"\s*\d+[.)]", r.answer)
 
 
+def test_voice_improvement_fallback_without_guidance_is_nonempty_and_localized(tmp_path, monkeypatch):
+    monkeypatch.setattr(F, "guidance_for", lambda *_a, **_kw: [])
+    ag, _, _ = agent_for(ScriptedLLM(fail=True), tmp_path=tmp_path)
+    r = ask(ag, "What should I do to improve my application?", channel="voice", locale="te")
+
+    assert r.intent == "improve" and "fallback_template" in r.guard_flags
+    assert "ఈ recordలో మెరుగుపరచాల్సిన ప్రత్యేక కారణం కనిపించడం లేదు." in r.answer
+    assert len([line for line in r.answer.splitlines() if line.strip()]) == 1
+
+
 # ------------------------------------------------------------------ improve / what-if
 def test_improvement_plan_targets_are_zen_checked(tmp_path):
     ag, store, _ = agent_for(ScriptedLLM(intent="improve", compose="1. Reduce EMIs. Synthetic policy; not a guarantee."), tmp_path=tmp_path)

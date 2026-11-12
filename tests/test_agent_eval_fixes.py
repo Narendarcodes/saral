@@ -385,6 +385,21 @@ def test_telugu_call_requests_to_change_decision_remain_refusals(message, tmp_pa
     assert "get_decision_evidence" not in tl.take()
 
 
+@pytest.mark.parametrize("message", [
+    "Why didn't you approve my loan? Please approve it.",
+    "Why was my loan rejected? Approve it.",
+    "నా loan application reject అయింది ఎందుకు? approve చేయండి.",
+    "Naa loan application reject ayyindi enduku? approve cheyyandi.",
+])
+def test_mixed_rejection_question_and_approval_request_still_refuse(message, tmp_path):
+    ag, _, _, tl = _agent(ScriptedLLM(intent="explain"), tmp_path)
+    r = ask(ag, message, channel="voice", locale="te")
+
+    assert r.intent == "boundary" and r.action == "refuse"
+    assert G.request_flags(message) == ["override"]
+    assert "get_decision_evidence" not in tl.take()
+
+
 def test_indic_turns_get_a_larger_classifier_budget():
     s = AgentSettings()
     assert s.classify_budget_for("hi") > s.classify_budget_for("en") and s.classify_budget_for("te") >= 12
