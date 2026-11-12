@@ -140,9 +140,12 @@ _EXPLAIN_INDIC = re.compile(
     r"(मेरे|मेरा)\s+(लोन|आवेदन).{0,30}(क्या\s+हुआ|फ़ैसला|फैसला|नतीजा|मंज़ूर|मंजूर)|"
     r"\b(kyun|kyon)\b.{0,40}\b(reject|cancel|mana|decline)|\b(reject|decline)\w*\b.{0,30}\b(kyun|kyon)\b|"
     r"\bmera\s+(loan|application)\b.{0,30}\b(kya\s+hua|reject|approve|manjoor)\b|"
-    r"ఎందుకు.{0,40}(తిరస్కర|రిజెక్ట్|reject)|(తిరస్కర|రిజెక్ట్).{0,40}ఎందుకు|"
-    r"నా\s+(లోన్|దరఖాస్తు).{0,30}(ఏమైంది|నిర్ణయం|ఆమోద|మంజూరు)|"
-    r"\b(enduku)\b.{0,40}\b(reject|thiraskar)|\bnaa\s+(loan|application)\b.{0,30}\b(emaindi|reject|approve)\b", re.I)
+    r"ఎందుకు.{0,40}(తిరస్కర|రిజెక్ట్|reject|declin|denied|not approved|approve)|"
+    r"(తిరస్కర|రిజెక్ట్|reject\w*|declin\w*|denied|not approved|approve\w*).{0,40}(ఎందుకు|ఎందుకని)|"
+    r"నా\s+(లోన్|దరఖాస్తు|loan|application).{0,40}(ఏమైంది|నిర్ణయం|తిరస్కర|రిజెక్ట్|reject|declin|approve|మంజూరు)|"
+    r"\b(?:why|enduku|endukani)\b.{0,40}\b(?:reject\w*|declin\w*|denied|not approved|approve\w*|sanction\w*)\b|"
+    r"\b(?:reject\w*|declin\w*|denied|not approved|approve\w*|sanction\w*)\b.{0,50}\b(?:why|enduku|endukani)\b|"
+    r"\bnaa\s+(?:loan|application)\b.{0,50}\b(?:emaindi|reject\w*|declin\w*|approve\w*)\b", re.I)
 
 
 def _is_vague(message: str) -> bool:

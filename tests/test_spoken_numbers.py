@@ -107,6 +107,8 @@ def test_mixed_sentence_changes_only_the_numbers():
     te = "మీ EMI ₹18,500, వడ్డీ 10.5%. Ref APP-TEST-002, 36 నెలలు."
     assert verbalise(te, "te-IN") == ("మీ EMI పద్దెనిమిది వేల ఐదు వందల రూపాయలు, వడ్డీ పది పాయింట్ ఐదు శాతం. "
                                       "Ref APP-TEST-002, ముప్పై ఆరు నెలలు.")
+    loan_terms = "మీ loan application ను approve చేయలేము. EMI ₹18,500."
+    assert verbalise(loan_terms, "te-IN") == "మీ loan application ను approve చేయలేము. EMI పద్దెనిమిది వేల ఐదు వందల రూపాయలు."
     hi = "आपकी EMI ₹18,500 है, ब्याज 58% (APP-TEST-002)।"
     assert verbalise(hi, "hi-IN") == "आपकी EMI अठारह हज़ार पाँच सौ रुपये है, ब्याज अट्ठावन प्रतिशत (APP-TEST-002)।"
 

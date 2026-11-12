@@ -98,6 +98,14 @@ def test_worker_speech_path_is_gnani_only():
         assert "svara" not in text and "hx-loan-stt" not in text and "8793" not in text, path
 
 
+def test_worker_scopes_tts_error_telemetry_to_the_synthesis_turn():
+    src = (VOICE / "agent_worker.py").read_text(encoding="utf-8")
+    assert "with tts_error_context(turn_info):" in src
+    assert "turn_times, turn_info = self.turn.t, self.turn.info" in src
+    assert "wire_tts_telemetry(tts_engine)" in src
+    assert "wire_tts_telemetry(tts_engine, turn)" not in src
+
+
 def test_no_gnani_key_in_tracked_voice_code():
     for path in [VOICE / "gnani_speech.py", VOICE / "agent_worker.py", ROOT / ".env.example"]:
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -285,6 +293,72 @@ def test_tts_sse_round_trip_with_fake_http(gs):
     assert posted["body"]["model"] == "timbre-v3.0" and posted["body"]["voice"] == "Tarika"
     assert posted["body"]["language"] == "te-IN" and posted["body"]["speed"] == 1.1
     assert posted["headers"]["X-API-Key-ID"] == DUMMY_KEY
+
+
+def test_tts_sse_retries_transient_503_and_redacts_provider_body(gs, caplog):
+    import base64
+    import logging
+
+    from livekit.agents import APIConnectOptions, DEFAULT_API_CONNECT_OPTIONS
+    from loan_advisory.agent.voice_log import install_tts_log_sanitizer, mark_tts_success, record_tts_error_event
+
+    assert DEFAULT_API_CONNECT_OPTIONS.max_retry == 3
+    install_tts_log_sanitizer()
+    caplog.set_level(logging.WARNING)
+    secret = "CALLER_TRANSCRIPT_MUST_NOT_BE_LOGGED"
+    pcm = b"\x01\x00" * 2205
+    lines = [b'data: {"status": "streaming_started"}\n',
+             f'data: {{"audio": "{base64.b64encode(pcm).decode()}", "is_final": false}}\n'.encode(),
+             b'data: {"audio": "", "is_final": true}\n']
+    requests = []
+
+    class Resp:
+        def __init__(self, status, body="", stream_lines=()):
+            self.status, self.body, self.lines, self.content = status, body, stream_lines, self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def text(self):
+            return self.body
+
+        def __aiter__(self):
+            return self._gen()
+
+        async def _gen(self):
+            for line in self.lines:
+                yield line
+
+    class Session:
+        def post(self, url, json=None, headers=None, **kwargs):
+            requests.append({"url": url, "body": json})
+            if len(requests) == 1:
+                return Resp(503, f"temporary provider failure echoed {secret}")
+            return Resp(200, stream_lines=lines)
+
+    t = gs.build_tts(S.GnaniSpeechSettings(), "te")
+    t._session = Session()
+    telemetry = {"tts_provider": "gnani"}
+    t.on("error", lambda event: record_tts_error_event(telemetry, event))
+
+    async def go():
+        samples = 0
+        async with t.synthesize("మీ loan application", conn_options=APIConnectOptions(max_retry=3, retry_interval=0)) as stream:
+            async for event in stream:
+                samples += event.frame.samples_per_channel
+        return samples
+
+    samples = asyncio.run(asyncio.wait_for(go(), timeout=10))
+    mark_tts_success(telemetry)
+
+    assert samples >= 2205 and len(requests) == 2
+    assert telemetry["tts_error_count"] == 1 and telemetry["tts_retry_count"] == 1
+    assert telemetry["tts_http_status"] == 503 and telemetry["tts_status"] == "ok"
+    assert telemetry["tts_recovered"] is True
+    assert secret not in caplog.text
 
 
 # --------------------------------------------------------------- 2026-11-10 call audit: one locale, one TLS context
