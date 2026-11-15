@@ -16,6 +16,7 @@
 </p>
 
 <p align="center">
+  <a href="PITCH.md"><b>Pitch</b></a> ·
   <a href="docs/DEMO_GUIDE.md"><b>Try it</b></a> ·
   <a href="#run-it-locally"><b>Quickstart</b></a> ·
   <a href="#architecture"><b>Architecture</b></a> ·
