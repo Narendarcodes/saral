@@ -1,0 +1,29 @@
+# Local override for the saral_gnani stack.
+#
+# Why this exists: infra/frappe/saral.yml is written for the droplet deployment and
+# pins `pull_policy: always`, which makes Docker try to pull `saral-frappe:16` from
+# Docker Hub. That image is built locally and never published, so the pull fails with
+# "repository does not exist". This override forces the locally present image.
+#
+#   docker compose -f saral.yml -f saral_gnani.local.yml up -d
+services:
+  backend:
+    pull_policy: missing
+  configurator:
+    pull_policy: missing
+  frontend:
+    pull_policy: missing
+  queue-long:
+    pull_policy: missing
+  queue-short:
+    pull_policy: missing
+  redis-cache:
+    pull_policy: missing
+  redis-queue:
+    pull_policy: missing
+  scheduler:
+    pull_policy: missing
+  websocket:
+    pull_policy: missing
+  db:
+    pull_policy: missing

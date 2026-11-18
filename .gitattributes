@@ -18,3 +18,6 @@ docs/borrower-frontend/acceptance/** -whitespace -text linguist-generated=true
 # declared here too. Fixing this at checkout is the only place it can be fixed: the blobs are already LF.
 *.sh text eol=lf
 .githooks/* text eol=lf
+
+# Keep byte-pinned contract snapshots byte-exact on Windows (core.autocrlf must not rewrite them).
+synthetic_data/saral_kyc_bank/contracts_snapshot/*.json -text

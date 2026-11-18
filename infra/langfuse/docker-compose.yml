@@ -9,10 +9,10 @@
 #
 # Upstream: https://github.com/langfuse/langfuse/blob/main/docker-compose.yml
 # Docs:     https://langfuse.com/self-hosting/docker-compose
-name: loan-advisory-langfuse
+name: saral_gnani_langfuse
 
 x-langfuse-env: &langfuse-env
-  NEXTAUTH_URL: ${NEXTAUTH_URL:-http://127.0.0.1:3000}
+  NEXTAUTH_URL: ${NEXTAUTH_URL:-http://127.0.0.1:3001}
   DATABASE_URL: ${DATABASE_URL}
   SALT: ${SALT}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY}
@@ -65,19 +65,19 @@ services:
       clickhouse:
         condition: service_healthy
     ports:
-      - 127.0.0.1:3000:3000
+      - 127.0.0.1:3001:3000
     environment:
       <<: *langfuse-env
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       # First-start bootstrap: creates the local org/project/user and API keys.
       # Ignored once the database is initialised.
-      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-loan-advisory}
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-saral-gnani}
       LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-Load Advisory Agent (local)}
-      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-loan-advisory-local}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-saral-gnani-local}
       LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-loan-advisory-local}
       LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY}
       LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY}
-      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@loan-advisory.local}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@saral-gnani.local}
       LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Local Admin}
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
       LANGFUSE_DISABLE_SIGNUP_ONBOARDING: "true"

@@ -1,0 +1,96 @@
+{
+ "_warning": "SYNTHETIC FIXTURES ONLY. Hashes only (HMAC-SHA256, key from CALLER_VERIFY_HMAC_KEY).",
+ "algorithm": "hmac-sha256",
+ "records": [
+  {
+   "phone_hmac": "899882dcddb47483356f2a8decefa2cd04e1c625d8356f1207986b7358059adb",
+   "applicant_id": "CUS-TEST-001",
+   "application_id": "ACC-LOAP-2026-00003",
+   "salt": "4cc80cc57d38ffedc04ffcb3d31cea4a",
+   "factors": {
+    "application": "1b3fe9fdd9891f3345992e5880ad2b39f0655f1edb8c1ad21d2625456490f49d",
+    "bank_account": "33792a733c893f6620ef100db4c77779d672ca7f3c8e6e1de58d4ce9e9918c5c"
+   }
+  },
+  {
+   "phone_hmac": "9ecfcbe839a9c3cfe56c0204cee01ac57de2decdee23bfd9c1a97a900c6b79ac",
+   "applicant_id": "CUS-TEST-002",
+   "application_id": "ACC-LOAP-2026-00004",
+   "salt": "2c6bb012d0f646fb09fba90170754013",
+   "factors": {
+    "application": "fb20e8e3e4f8369416e942609e7c75a47063d9e507b12f92a2580af987e31794",
+    "bank_account": "291a187e5b7788d02025874ccd48bb1486bf46229ad471b3f762c23d9540b27c"
+   }
+  },
+  {
+   "phone_hmac": "980d258cbdd9e85f3c80786aa042df910bf969e13615e6c35643f800468d8baa",
+   "applicant_id": "CUS-TEST-003",
+   "application_id": "ACC-LOAP-2026-00005",
+   "salt": "e04366af5715e2dd52f00042a07ce36e",
+   "factors": {
+    "application": "6326f7c81af3bf10ede6c43363878ff16688c7c945a5e9af72faf16f31f6681e",
+    "bank_account": "e27a43b1591fd16cc432b3bc41fab87d76efb27f11c46667925d56b1c35b0e6b"
+   }
+  },
+  {
+   "phone_hmac": "34507b332d150daeaa883468b5e82082b0b6c6b1553bbf5708c187049eb7e5cb",
+   "applicant_id": "CUS-TEST-004",
+   "application_id": "ACC-LOAP-2026-00006",
+   "salt": "20022365dade8b8d90f70e9369d408b6",
+   "factors": {
+    "application": "2ed635dfd30518a4fc0de27e60e4c6ecc88a47b08742da113762680a5c78b2fa",
+    "bank_account": "aa8591f9e111765faa8f183d4f729d480afa478e5320602834e2c5ef76bf1d03"
+   }
+  },
+  {
+   "phone_hmac": "2cdd6341ce88d6b7d3aa3452ffb1b9b497c84c9b65134ba1dae54b2e32b564ba",
+   "applicant_id": "CUS-TEST-005",
+   "application_id": "ACC-LOAP-2026-00007",
+   "salt": "67c5f00dbe20c21fc5281fd5c37817e9",
+   "factors": {
+    "application": "8b9d07684cddc1b5cac4fdec61226002aafcd5bb9a327793320f52830e77368d",
+    "bank_account": "61181372eb7a76b943c4acf7a0d4828f1fd1a4ba599e183f32889d2ebf1d98e6"
+   }
+  },
+  {
+   "phone_hmac": "1f3afd00fe5e53e5f5cc49fae8d309c87f97f628dfdfdb7d10e608feeaa56067",
+   "applicant_id": "CUS-TEST-006",
+   "application_id": "ACC-LOAP-2026-00008",
+   "salt": "40a6275921089b7c2ab20609790641fe",
+   "factors": {
+    "application": "576359b3e0961770187d33278d35766a277f8dbf408ec4dc21ad680c50f1753a",
+    "bank_account": "903212ae76abaf59df04e87e1d7696c7fdfc57ebc3b556ff8ad50a035cd0edd2"
+   }
+  },
+  {
+   "phone_hmac": "507672554fe74bcca44645b131d6e26d476891553f4ff9e36904b64b1bc276e5",
+   "applicant_id": "CUS-TEST-007",
+   "application_id": "APP-TEST-007",
+   "salt": "5b8f3d1aa453e5225eafc3bae37690c9",
+   "factors": {
+    "application": "14c8e474b66a9b4d2116e4182b086fa1d8b4c075439b78a13599953e72c37ace",
+    "bank_account": "7a55f27b95066a8878a097e2bdb0be9fe308384566731f009fc0f59afb169725"
+   }
+  },
+  {
+   "phone_hmac": "1a59b1984534a1aeec8f2a292e32d45f18154d87e8893a07e99083c588a3bd76",
+   "applicant_id": "CUS-TEST-008",
+   "application_id": "ACC-LOAP-2026-00009",
+   "salt": "54bcf19c2bbf2437081a5acd322ae148",
+   "factors": {
+    "application": "adcad9d14e28148ec231a7a92fa21924245d76ac9a678fc039a117f258e06018",
+    "bank_account": "8225702eb305221703765e7073d626c249af97fcd1a6724d8a416c0dd1dffb1b"
+   }
+  },
+  {
+   "phone_hmac": "69f1460687d560171f958f73b9c3e9a57d97d384ae58dbb2b1bf90c0718c0f59",
+   "applicant_id": "CUS-TEST-001",
+   "application_id": "ACC-LOAP-2026-00003",
+   "salt": "4cc80cc57d38ffedc04ffcb3d31cea4a",
+   "factors": {
+    "application": "1b3fe9fdd9891f3345992e5880ad2b39f0655f1edb8c1ad21d2625456490f49d",
+    "bank_account": "33792a733c893f6620ef100db4c77779d672ca7f3c8e6e1de58d4ce9e9918c5c"
+   }
+  }
+ ]
+}

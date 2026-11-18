@@ -1,0 +1,21 @@
+{
+ "locale": "en",
+ "text": "Your loan application is under review. We will update you within two working days.",
+ "tts": {
+  "model": "timbre-v3.0",
+  "voice": "Tarika",
+  "language": "en-IN",
+  "speed": 1.0,
+  "first_audio_ms": 541.3,
+  "total_ms": 2008.5,
+  "audio_s": 5.13,
+  "wav": "gnani_rt\\timbre_en.wav"
+ },
+ "stt": {
+  "model": "prisma-v3.0",
+  "language_code": "en-IN",
+  "format": "codemix",
+  "transcript": "Your loan application is under review, we will update you within 2 working days.",
+  "after_audio_end_ms": 922.2
+ }
+}

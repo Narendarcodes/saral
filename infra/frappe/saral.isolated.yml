@@ -1,7 +1,7 @@
 # Isolated second stack for testing, alongside a running one.
 #
 # Why this exists: infra/frappe/saral.yml pins its volumes to fixed external names
-# (frappe_docker_db-data, frappe_docker_sites, frappe_docker_redis-queue-data). Those names do not
+# (saral_gnani_db-data, saral_gnani_sites, saral_gnani_redis-queue-data). Those names do not
 # carry the compose project prefix, so `docker compose -f saral.yml -p anything up` mounts the
 # SAME data directory as the stack already running. Observed consequence: a second MariaDB started
 # against the live database, hit `Can't lock aria control file`, and the existing db container was
@@ -10,7 +10,7 @@
 # Use this override whenever a second, disposable stack is wanted next to a running one:
 #
 #   docker compose -f infra/frappe/saral.yml -f infra/frappe/saral.isolated.yml \
-#     -p reprostack up -d db redis-cache redis-queue configurator backend --pull missing
+#     -p saral_gnani_isolated up -d db redis-cache redis-queue configurator backend --pull missing
 #
 # The frontend is deliberately left out: it publishes host port 8080, which the primary stack
 # already owns. Reach a site in this stack with `bench serve` on an internal port plus your own
@@ -19,13 +19,15 @@
 # Volumes declared here shadow the pinned names in the base file. Naming them explicitly is the only
 # thing that works: `name: null` is accepted by the parser but the base file's pinned name survives,
 # which is exactly the collision this file exists to prevent.
+name: saral_gnani_isolated
+
 volumes:
   db-data:
-    name: frappe_isolated_db-data
+    name: saral_gnani_isolated_db-data
   sites:
-    name: frappe_isolated_sites
+    name: saral_gnani_isolated_sites
   redis-queue-data:
-    name: frappe_isolated_redis-queue-data
+    name: saral_gnani_isolated_redis-queue-data
 
 services:
   db:
@@ -49,3 +51,7 @@ services:
   frontend:
     # Never publish 8080 from an isolated stack; it belongs to the primary one.
     ports: !reset []
+
+networks:
+  default:
+    name: saral_gnani_isolated_default
