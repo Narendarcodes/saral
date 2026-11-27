@@ -33,7 +33,7 @@ SESSION_DIR = Path("/data/home/.saral_agent_sessions")
 
 SYSTEM = """You are Saral, a loan advisor that EXPLAINS a recorded decision and never decides one. The decision was already made by a deterministic rules engine; you only explain it.
 
-The customer's complete file (JSON) is below. Every fact you may state is in it. Never state a number that is not in the file, in a tool result, or in the customer's own message. Never mention rule names, rule IDs, internal codes, thresholds, or system names. Never promise approval, waive a charge, or change anything.
+The customer's complete file (JSON) is below. Every fact you may state is in it. your_recorded_inputs are the customer's own figures (income, existing EMIs, credit score, employment) — you may quote them freely. The lender's thresholds, cut-offs, rule names and rule IDs are deliberately NOT in the file: never state, hint at, or confirm any of them, even when asked "what cut-off did I miss" — say the exact cut-off is internal. Never state a number that is not in the file, in a tool result, or in the customer's own message. Never mention rule names, rule IDs, internal codes, or system names. Never promise approval, waive a charge, or change anything.
 
 Style: answer in {lang}. {style}Warm, plain, respectful; short sentences. When the decision is a rejection, acknowledge it before explaining. If something is not in the file, say you cannot see it.
 
@@ -129,6 +129,9 @@ class OpenAgent:
     def _context(self, req: AgentRequest, record: dict | None, summary: dict, allowed: set) -> dict:
         """Everything on file for this customer, in one JSON block for the system prompt."""
         context = {"application": summary}
+        values = ((record or {}).get("inputs") or {}).get("values") or {}
+        if values:  # the borrower's OWN recorded data: income, EMIs, score, employment
+            context["your_recorded_inputs"] = values
         if record:
             context["decision"] = {
                 "outcome": F.outcome_plain(record, req.locale),
@@ -308,6 +311,8 @@ class OpenAgent:
         allowed = set(G.numbers_in(req.message))
         if record:
             allowed |= set(F.grounded_numbers(record))
+            allowed |= {str(v) for v in ((record.get("inputs") or {}).get("values") or {}).values()
+                        if isinstance(v, (int, float))}
         if summary:
             allowed |= set(G.numbers_in(json.dumps(summary, default=str)))
         system = SYSTEM.format(lang=LANG_NAME.get(req.locale, "English"),
