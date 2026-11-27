@@ -52,8 +52,12 @@ class AgentSettings:
     intent_model: str = ""
     intent_fallback_model: str = "antigravity/gemini-3.5-flash-lite"  # = intent_llm.DEFAULT_INTENT_FALLBACK_MODEL
     intent_groq_backup: str = "openai/gpt-oss-20b"  # = intent_llm.DEFAULT_GROQ_BACKUP_MODEL
+    llm_classifier_enabled: bool = True  # AGENT_LLM_CLASSIFIER_ENABLED=0: no classifier call, rules only
 
     def __post_init__(self):
+        if isinstance(self.llm_classifier_enabled, str):
+            object.__setattr__(self, "llm_classifier_enabled",
+                               self.llm_classifier_enabled.strip().lower() not in ("", "0", "false", "off", "no"))
         if self.fast_classify not in FAST_CLASSIFY:
             raise ValueError(f"AGENT_FAST_CLASSIFY must be one of {FAST_CLASSIFY}, got {self.fast_classify!r}")
         if self.citation_mode not in CITATION_MODES:

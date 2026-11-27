@@ -465,17 +465,20 @@ class AdvisoryAgent:
         values = ((cache.get("record") or {}).get("inputs") or {}).get("values") or {} \
             if cache.get("application_ref") == req.application_ref else {}
         hist = [f"{h['role']}: {h['text'][:200]}" for h in (s.get("history") or [])[-4:]]
-        intent, changes, by = None, None, "llm"
-        try:
-            il = getattr(self, "intent_llm", None) or self.llm
-            j = il.chat_json("You are a precise intent classifier. Output JSON only.",
-                                   P.CLASSIFY.format(values=json.dumps(values), history=json.dumps(hist, ensure_ascii=False),
-                                                     message=req.message), max_tokens=400, tag="classify",
-                                   **self._llm_kw(s, self._classify_budget(req), il))
-            intent = j.get("intent") if j.get("intent") in INTENTS else None
-            changes = j.get("what_if_changes") or None
-        except (LLMError, AttributeError):
-            intent = None
+        if self.settings.llm_classifier_enabled:
+            intent, changes, by = None, None, "llm"
+            try:
+                il = getattr(self, "intent_llm", None) or self.llm
+                j = il.chat_json("You are a precise intent classifier. Output JSON only.",
+                                       P.CLASSIFY.format(values=json.dumps(values), history=json.dumps(hist, ensure_ascii=False),
+                                                         message=req.message), max_tokens=400, tag="classify",
+                                       **self._llm_kw(s, self._classify_budget(req), il))
+                intent = j.get("intent") if j.get("intent") in INTENTS else None
+                changes = j.get("what_if_changes") or None
+            except (LLMError, AttributeError):
+                intent = None
+        else:
+            intent, changes, by = None, None, "rules"
         if intent == "status":  # "status" is only taken from the keyword router; the LLM's status reads as explain
             intent = "explain"
         if intent == "misrepresentation":

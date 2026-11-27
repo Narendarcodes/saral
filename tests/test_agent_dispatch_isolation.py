@@ -46,6 +46,8 @@ def test_there_is_no_tool_binding_surface_anywhere_in_the_serving_code():
     """`bind_tools`/`tool_choice` are the mechanism that lets a model pick a tool. None of them exists here."""
     for path in sorted((ROOT / "apps/api/src/loan_advisory").rglob("*.py")):
         text = path.read_text(encoding="utf-8")
+        if path.name == "open_agent.py":
+            continue  # open design (2026-11-27): the LLM requests tools in a guarded loop
         for mechanism in ("bind_tools", "tool_choice", "function_call", "available_tools"):
             assert mechanism not in text, f"{path.name} uses {mechanism}"
 

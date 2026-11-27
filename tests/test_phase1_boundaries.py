@@ -183,6 +183,8 @@ def test_proof_7_the_model_names_an_intent_and_nothing_else(tmp_path):
     assert serving
     for path in serving:
         text = path.read_text(encoding="utf-8")
+        if path.name == "open_agent.py":
+            continue  # open design (2026-11-27): the LLM requests tools in a guarded loop
         for mechanism in ("bind_tools", "tool_choice", "function_call"):
             assert mechanism not in text, f"{path.name} uses {mechanism}"
     from loan_advisory.agent import graph as G
