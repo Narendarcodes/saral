@@ -80,6 +80,8 @@ def parse_args(argv=None):
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8095)
     ap.add_argument("--offline", action="store_true", help="MockStore + in-memory evidence instead of live Frappe")
+    ap.add_argument("--design", choices=("intent", "open"), default="intent",
+                    help="intent = routed graph (default); open = no classifier, full file in context, tool loop")
     ap.add_argument("--no-rag", action="store_true", help="do not load the GPU retriever (policy questions abstain)")
     ap.add_argument("--max-inflight", type=_positive_int, default=8,
                     help="concurrent requests the server admits; extra requests get 503 + Retry-After (default 8)")
@@ -152,7 +154,11 @@ def main(argv=None):
     if not a.no_rag:
         from loan_advisory.agent.runtime import load_policy_tools
         t = time.time(); policy, profile = load_policy_tools(); print(f"retriever loaded in {time.time() - t:.1f}s", file=sys.stderr)
-    if a.offline:
+    if a.design == "open":
+        from loan_advisory.agent.open_agent import build_open_agent
+        agent = build_open_agent(offline=a.offline, policy_tools=policy, profile=profile)
+        service = App(agent)
+    elif a.offline:
         from loan_advisory.agent.runtime import build_offline_agent
         agent, *_ = build_offline_agent(policy_tools=policy, profile=profile)
         service = App(agent)
